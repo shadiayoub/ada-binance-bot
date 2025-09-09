@@ -15,4 +15,3 @@ services:
 
 networks:
   trading-network:
-    driver: bridge
