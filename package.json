@@ -1,0 +1,47 @@
+{
+  "name": "ada-futures-bot",
+  "version": "1.0.0",
+  "description": "ADA Futures Trading Bot with 4-Position Hedge System",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "jest",
+    "test:config": "ts-node src/scripts/test-configuration.ts",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write src/**/*.ts",
+    "install:pnpm": "pnpm install",
+    "dev:pnpm": "pnpm run dev",
+    "build:pnpm": "pnpm run build",
+    "start:pnpm": "pnpm run start"
+  },
+  "keywords": ["trading", "bot", "crypto", "futures", "ada", "binance"],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "binance-api-node": "^0.12.4",
+    "ws": "^8.14.2",
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.3",
+    "winston": "^3.11.0",
+    "technicalindicators": "^3.1.0",
+    "lodash": "^4.17.21",
+    "moment": "^2.29.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/ws": "^8.5.10",
+    "@types/lodash": "^4.14.202",
+    "@types/node-cron": "^3.0.11",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.8",
+    "prettier": "^3.1.0",
+    "ts-jest": "^29.1.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.3.2"
+  }
+}

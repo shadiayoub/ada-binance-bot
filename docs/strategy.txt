@@ -1,0 +1,13 @@
+Futures crypto strategy: 
+- Bot studies a given crypto asset like ADA.
+- Identifies support and resistance areas. 
+- Upon signal, bot places order.
+- Position open using 40% of balance: If price moves as predected > win.
+- If price moves against predicted and show opposite movement signs > bot opens hedge order opposite to the current position.
+- Hedge position using 60% of balance.
+- Hedge order opens if price passes first position's stop loss zone.
+- If first position is liquidated, bot closes second position. 
+- If price return to original direction (against hedge), this hedge position is closed when it is back to its open price. 
+- If price satisfies first position direction > win. 
+- If price returns agains first position > a new hedge is open similar to the first hedge scenario.
+- This way initial orders either win or do not lose. 
