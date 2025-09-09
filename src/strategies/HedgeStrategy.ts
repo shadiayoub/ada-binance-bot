@@ -208,6 +208,42 @@ export class HedgeStrategy {
       }
     }
 
+    // Check for profit-taking signals on anchor positions
+    const anchorPositions = this.currentPositions.filter(pos => 
+      pos.type === 'ANCHOR' && pos.status === 'OPEN'
+    );
+
+    for (const anchorPosition of anchorPositions) {
+      if (this.shouldTakeProfitAnchor(anchorPosition, currentPrice, indicators1h)) {
+        signals.push({
+          type: 'EXIT',
+          position: anchorPosition.side,
+          price: currentPrice,
+          confidence: 0.8,
+          reason: 'Anchor position reached profit-taking level',
+          timestamp: new Date()
+        });
+      }
+    }
+
+    // Check for profit-taking signals on opportunity positions
+    const opportunityPositions = this.currentPositions.filter(pos => 
+      pos.type === 'OPPORTUNITY' && pos.status === 'OPEN'
+    );
+
+    for (const opportunityPosition of opportunityPositions) {
+      if (this.shouldTakeProfitOpportunity(opportunityPosition, currentPrice, indicators1h)) {
+        signals.push({
+          type: 'EXIT',
+          position: opportunityPosition.side,
+          price: currentPrice,
+          confidence: 0.8,
+          reason: 'Opportunity position reached profit-taking level',
+          timestamp: new Date()
+        });
+      }
+    }
+
     return signals;
   }
 
@@ -424,6 +460,191 @@ export class HedgeStrategy {
     }
 
     return false;
+  }
+
+  /**
+   * Check if we should take profit on anchor position using comprehensive levels
+   */
+  private shouldTakeProfitAnchor(anchorPosition: Position, currentPrice: number, indicators1h: TechnicalIndicators): boolean {
+    const profitThreshold = 0.02; // Minimum 2% profit before considering exit
+    const currentProfit = this.calculateProfitPercentage(anchorPosition, currentPrice);
+    
+    // Only consider profit-taking if we have meaningful profit
+    if (currentProfit < profitThreshold) {
+      return false;
+    }
+
+    // Get comprehensive trading signals
+    const signals = this.comprehensiveLevels.getTradingSignals(currentPrice);
+    
+    if (anchorPosition.side === 'LONG') {
+      // For LONG positions: Take profit at resistance levels
+      const nearestResistance = signals.nearestResistance;
+      
+      if (nearestResistance) {
+        // Check if we're near a high-importance resistance level (within 0.5%)
+        const priceTolerance = 0.005; // 0.5% tolerance
+        const isNearResistance = Math.abs(currentPrice - nearestResistance.price) / nearestResistance.price <= priceTolerance;
+        const isAboveResistance = currentPrice >= nearestResistance.price;
+        
+        if ((isNearResistance || isAboveResistance) && (nearestResistance.importance === 'HIGH' || nearestResistance.importance === 'CRITICAL')) {
+          // Additional confirmation: RSI overbought or volume decreasing
+          const rsiOverbought = indicators1h.rsi > 70;
+          const volumeDecreasing = indicators1h.volumeRatio < 1.0;
+          
+          if (rsiOverbought || volumeDecreasing) {
+            logger.info('🎯 LONG Anchor Profit-Taking Signal', {
+              position: 'ANCHOR_LONG',
+              entryPrice: anchorPosition.entryPrice.toFixed(4),
+              currentPrice: currentPrice.toFixed(4),
+              profit: `${currentProfit.toFixed(2)}%`,
+              resistanceLevel: nearestResistance.price.toFixed(4),
+              description: nearestResistance.description,
+              importance: nearestResistance.importance,
+              isNearResistance,
+              isAboveResistance,
+              rsiOverbought,
+              volumeDecreasing
+            });
+            return true;
+          }
+        }
+      }
+    } else if (anchorPosition.side === 'SHORT') {
+      // For SHORT positions: Take profit at support levels
+      const nearestSupport = signals.nearestSupport;
+      
+      if (nearestSupport) {
+        // Check if we're near a high-importance support level (within 0.5%)
+        const priceTolerance = 0.005; // 0.5% tolerance
+        const isNearSupport = Math.abs(currentPrice - nearestSupport.price) / nearestSupport.price <= priceTolerance;
+        const isBelowSupport = currentPrice <= nearestSupport.price;
+        
+        if ((isNearSupport || isBelowSupport) && (nearestSupport.importance === 'HIGH' || nearestSupport.importance === 'CRITICAL')) {
+          // Additional confirmation: RSI oversold or volume decreasing
+          const rsiOversold = indicators1h.rsi < 30;
+          const volumeDecreasing = indicators1h.volumeRatio < 1.0;
+          
+          if (rsiOversold || volumeDecreasing) {
+            logger.info('🎯 SHORT Anchor Profit-Taking Signal', {
+              position: 'ANCHOR_SHORT',
+              entryPrice: anchorPosition.entryPrice.toFixed(4),
+              currentPrice: currentPrice.toFixed(4),
+              profit: `${currentProfit.toFixed(2)}%`,
+              supportLevel: nearestSupport.price.toFixed(4),
+              description: nearestSupport.description,
+              importance: nearestSupport.importance,
+              isNearSupport,
+              isBelowSupport,
+              rsiOversold,
+              volumeDecreasing
+            });
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if we should take profit on opportunity position using comprehensive levels
+   */
+  private shouldTakeProfitOpportunity(opportunityPosition: Position, currentPrice: number, indicators1h: TechnicalIndicators): boolean {
+    const profitThreshold = 0.015; // Minimum 1.5% profit for opportunity positions
+    const currentProfit = this.calculateProfitPercentage(opportunityPosition, currentPrice);
+    
+    // Only consider profit-taking if we have meaningful profit
+    if (currentProfit < profitThreshold) {
+      return false;
+    }
+
+    // Get comprehensive trading signals
+    const signals = this.comprehensiveLevels.getTradingSignals(currentPrice);
+    
+    if (opportunityPosition.side === 'LONG') {
+      // For LONG opportunity: Take profit at resistance levels
+      const nearestResistance = signals.nearestResistance;
+      
+      if (nearestResistance) {
+        // Check if we're near a medium+ importance resistance level (within 0.5%)
+        const priceTolerance = 0.005; // 0.5% tolerance
+        const isNearResistance = Math.abs(currentPrice - nearestResistance.price) / nearestResistance.price <= priceTolerance;
+        const isAboveResistance = currentPrice >= nearestResistance.price;
+        
+        // More aggressive profit-taking for opportunity positions
+        const isMediumImportance = nearestResistance.importance === 'MEDIUM' || 
+                                 nearestResistance.importance === 'HIGH' || 
+                                 nearestResistance.importance === 'CRITICAL';
+        
+        // Additional confirmation: RSI overbought
+        const rsiOverbought = indicators1h.rsi > 75;
+        
+        if ((isNearResistance || isAboveResistance) && isMediumImportance && rsiOverbought) {
+          logger.info('🎯 LONG Opportunity Profit-Taking Signal', {
+            position: 'OPPORTUNITY_LONG',
+            entryPrice: opportunityPosition.entryPrice.toFixed(4),
+            currentPrice: currentPrice.toFixed(4),
+            profit: `${currentProfit.toFixed(2)}%`,
+            resistanceLevel: nearestResistance.price.toFixed(4),
+            description: nearestResistance.description,
+            importance: nearestResistance.importance,
+            isNearResistance,
+            isAboveResistance,
+            rsiOverbought
+          });
+          return true;
+        }
+      }
+    } else if (opportunityPosition.side === 'SHORT') {
+      // For SHORT opportunity: Take profit at support levels
+      const nearestSupport = signals.nearestSupport;
+      
+      if (nearestSupport) {
+        // Check if we're near a medium+ importance support level (within 0.5%)
+        const priceTolerance = 0.005; // 0.5% tolerance
+        const isNearSupport = Math.abs(currentPrice - nearestSupport.price) / nearestSupport.price <= priceTolerance;
+        const isBelowSupport = currentPrice <= nearestSupport.price;
+        
+        // More aggressive profit-taking for opportunity positions
+        const isMediumImportance = nearestSupport.importance === 'MEDIUM' || 
+                                 nearestSupport.importance === 'HIGH' || 
+                                 nearestSupport.importance === 'CRITICAL';
+        
+        // Additional confirmation: RSI oversold
+        const rsiOversold = indicators1h.rsi < 25;
+        
+        if ((isNearSupport || isBelowSupport) && isMediumImportance && rsiOversold) {
+          logger.info('🎯 SHORT Opportunity Profit-Taking Signal', {
+            position: 'OPPORTUNITY_SHORT',
+            entryPrice: opportunityPosition.entryPrice.toFixed(4),
+            currentPrice: currentPrice.toFixed(4),
+            profit: `${currentProfit.toFixed(2)}%`,
+            supportLevel: nearestSupport.price.toFixed(4),
+            description: nearestSupport.description,
+            importance: nearestSupport.importance,
+            isNearSupport,
+            isBelowSupport,
+            rsiOversold
+          });
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Calculate profit percentage for a position
+   */
+  private calculateProfitPercentage(position: Position, currentPrice: number): number {
+    if (position.side === 'LONG') {
+      return ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+    } else {
+      return ((position.entryPrice - currentPrice) / position.entryPrice) * 100;
+    }
   }
 
   /**

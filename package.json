@@ -13,6 +13,7 @@
     "parse-levels": "ts-node src/scripts/parse-levels.ts",
     "comprehensive-levels": "ts-node src/scripts/comprehensive-levels.ts",
     "show-comprehensive": "ts-node src/scripts/show-comprehensive-levels.ts",
+    "test-profit-taking": "ts-node src/scripts/test-profit-taking.ts",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
     "install:pnpm": "pnpm install",
