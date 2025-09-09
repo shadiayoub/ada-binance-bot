@@ -38,6 +38,9 @@ export class DynamicLevels {
       supportLevels: this.levels.filter(l => l.type === 'SUPPORT').length,
       resistanceLevels: this.levels.filter(l => l.type === 'RESISTANCE').length
     });
+
+    // Log the actual levels for monitoring
+    this.logCurrentLevels();
   }
 
   /**
@@ -257,5 +260,33 @@ export class DynamicLevels {
       averageStrength,
       strongestLevel
     };
+  }
+
+  /**
+   * Log current levels for monitoring
+   */
+  private logCurrentLevels(): void {
+    const supportLevels = this.getSupportLevels();
+    const resistanceLevels = this.getResistanceLevels();
+
+    logger.info('📊 Learned Support/Resistance Levels', {
+      support: supportLevels.map(level => ({
+        price: level.price.toFixed(4),
+        strength: level.strength,
+        touches: level.touches
+      })),
+      resistance: resistanceLevels.map(level => ({
+        price: level.price.toFixed(4),
+        strength: level.strength,
+        touches: level.touches
+      })),
+      summary: {
+        totalLevels: this.levels.length,
+        supportCount: supportLevels.length,
+        resistanceCount: resistanceLevels.length,
+        strongestSupport: supportLevels.length > 0 ? supportLevels[0]?.price.toFixed(4) : 'None',
+        strongestResistance: resistanceLevels.length > 0 ? resistanceLevels[0]?.price.toFixed(4) : 'None'
+      }
+    });
   }
 }

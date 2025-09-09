@@ -14,28 +14,52 @@ By using higher leverage with proper hedging, the system creates a bulletproof t
 
 ## 🏗️ **System Architecture**
 
-### **4-Position Structure**
+### **4-Position Structure (Bidirectional)**
 
+#### **Bull Market Scenario (LONG Primary)**
 ```
 Position 1: Anchor Long (20% × 10x leverage)
 ├── Entry: Resistance breakout with volume
 ├── Purpose: Primary bullish position
-└── Protection: Hedge position
+└── Protection: Short hedge position
 
-Position 2: Anchor Hedge (30% × 15x leverage)
-├── Entry: Support level with volume
+Position 2: Anchor Hedge Short (30% × 15x leverage)
+├── Entry: Support level breakdown
 ├── Purpose: Protect anchor from pullbacks
 └── Exit: When price recovers above support
 
 Position 3: Opportunity Long (20% × 10x leverage)
 ├── Entry: Second support level
 ├── Purpose: Additional long exposure at better price
-└── Protection: Opportunity hedge
+└── Protection: Opportunity short hedge
 
-Position 4: Opportunity Hedge (30% × 15x leverage)
+Position 4: Opportunity Hedge Short (30% × 15x leverage)
 ├── Entry: Extreme support level
 ├── Purpose: Protect opportunity position
 └── Exit: When price recovers above extreme support
+```
+
+#### **Bear Market Scenario (SHORT Primary)**
+```
+Position 1: Anchor Short (20% × 10x leverage)
+├── Entry: Support breakdown with volume
+├── Purpose: Primary bearish position
+└── Protection: Long hedge position
+
+Position 2: Anchor Hedge Long (30% × 15x leverage)
+├── Entry: Resistance level breakout
+├── Purpose: Protect anchor from rallies
+└── Exit: When price returns below resistance
+
+Position 3: Opportunity Short (20% × 10x leverage)
+├── Entry: Second resistance level
+├── Purpose: Additional short exposure at better price
+└── Protection: Opportunity long hedge
+
+Position 4: Opportunity Hedge Long (30% × 15x leverage)
+├── Entry: Extreme resistance level
+├── Purpose: Protect opportunity position
+└── Exit: When price returns below extreme resistance
 ```
 
 ### **Total Balance Distribution**

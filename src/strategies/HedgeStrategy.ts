@@ -10,6 +10,7 @@ import {
 import { BinanceService } from '../services/BinanceService';
 import { TechnicalAnalysis } from '../services/TechnicalAnalysis';
 import { DynamicLevels } from '../services/DynamicLevels';
+import { ComprehensiveLevels } from '../services/ComprehensiveLevels';
 import { logger } from '../utils/logger';
 
 export class HedgeStrategy {
@@ -17,6 +18,7 @@ export class HedgeStrategy {
   private technicalAnalysis: TechnicalAnalysis;
   private supportResistanceLevels: SupportResistanceLevels;
   private dynamicLevels: DynamicLevels;
+  private comprehensiveLevels: ComprehensiveLevels;
   private positionSizing: PositionSizing;
   private leverageSettings: LeverageSettings;
   private currentPositions: Position[] = [];
@@ -33,6 +35,7 @@ export class HedgeStrategy {
     this.technicalAnalysis = technicalAnalysis;
     this.supportResistanceLevels = supportResistanceLevels;
     this.dynamicLevels = new DynamicLevels();
+    this.comprehensiveLevels = new ComprehensiveLevels();
     this.positionSizing = positionSizing;
     this.leverageSettings = leverageSettings;
   }
@@ -101,7 +104,7 @@ export class HedgeStrategy {
       return null;
     }
 
-    // Check for resistance breakout
+    // Check for resistance breakout (LONG anchor)
     if (this.isResistanceBreakout(currentPrice, indicators4h, indicators1h)) {
       return {
         type: 'ENTRY',
@@ -109,6 +112,18 @@ export class HedgeStrategy {
         price: currentPrice,
         confidence: this.calculateConfidence(indicators4h, indicators1h),
         reason: 'Resistance breakout with volume confirmation',
+        timestamp: new Date()
+      };
+    }
+
+    // Check for support breakdown (SHORT anchor)
+    if (this.isSupportBreakdown(currentPrice, indicators4h, indicators1h)) {
+      return {
+        type: 'ENTRY',
+        position: 'SHORT',
+        price: currentPrice,
+        confidence: this.calculateConfidence(indicators4h, indicators1h),
+        reason: 'Support breakdown with volume confirmation',
         timestamp: new Date()
       };
     }
@@ -128,12 +143,18 @@ export class HedgeStrategy {
     // Check for anchor hedge signal
     const anchorPosition = this.currentPositions.find(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
     if (anchorPosition && this.shouldHedgeAnchor(currentPrice, indicators1h)) {
+      // Determine hedge direction based on anchor side
+      const hedgeDirection = anchorPosition.side === 'LONG' ? 'SHORT' : 'LONG';
+      const hedgeReason = anchorPosition.side === 'LONG' 
+        ? 'Price below first support, opening anchor hedge (SHORT)'
+        : 'Price above first resistance, opening anchor hedge (LONG)';
+      
       signals.push({
         type: 'HEDGE',
-        position: 'SHORT',
+        position: hedgeDirection,
         price: currentPrice,
         confidence: 0.8,
-        reason: 'Price below first support, opening anchor hedge',
+        reason: hedgeReason,
         timestamp: new Date()
       });
     }
@@ -141,12 +162,18 @@ export class HedgeStrategy {
     // Check for opportunity hedge signal
     const opportunityPosition = this.currentPositions.find(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
     if (opportunityPosition && this.shouldHedgeOpportunity(currentPrice, indicators1h)) {
+      // Determine hedge direction based on opportunity side
+      const hedgeDirection = opportunityPosition.side === 'LONG' ? 'SHORT' : 'LONG';
+      const hedgeReason = opportunityPosition.side === 'LONG'
+        ? 'Price below second support, opening opportunity hedge (SHORT)'
+        : 'Price above second resistance, opening opportunity hedge (LONG)';
+      
       signals.push({
         type: 'HEDGE',
-        position: 'SHORT',
+        position: hedgeDirection,
         price: currentPrice,
         confidence: 0.8,
-        reason: 'Price below second support, opening opportunity hedge',
+        reason: hedgeReason,
         timestamp: new Date()
       });
     }
@@ -197,12 +224,19 @@ export class HedgeStrategy {
     // Check if we should open opportunity position
     const hasOpportunityPosition = this.currentPositions.some(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
     if (!hasOpportunityPosition && this.shouldOpenOpportunity(currentPrice, indicators4h, indicators1h)) {
+      // Determine opportunity direction based on anchor side
+      const anchorPosition = this.currentPositions.find(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
+      const opportunityDirection = anchorPosition?.side === 'LONG' ? 'LONG' : 'SHORT';
+      const opportunityReason = anchorPosition?.side === 'LONG'
+        ? 'Price at second support level, opening opportunity position (LONG)'
+        : 'Price at second resistance level, opening opportunity position (SHORT)';
+      
       signals.push({
         type: 'RE_ENTRY',
-        position: 'LONG',
+        position: opportunityDirection,
         price: currentPrice,
         confidence: 0.7,
-        reason: 'Price at second support level, opening opportunity position',
+        reason: opportunityReason,
         timestamp: new Date()
       });
     }
@@ -218,21 +252,12 @@ export class HedgeStrategy {
     indicators4h: TechnicalIndicators, 
     indicators1h: TechnicalIndicators
   ): boolean {
-    let isAboveResistance = false;
-
-    if (this.useDynamicLevels) {
-      // Use dynamic resistance levels
-      const nearestResistance = this.dynamicLevels.getNearestResistance(currentPrice);
-      isAboveResistance = nearestResistance ? currentPrice > nearestResistance.price : false;
-    } else {
-      // Use static resistance levels
-      const resistanceLevels = [
-        this.supportResistanceLevels.resistance1,
-        this.supportResistanceLevels.resistance2,
-        this.supportResistanceLevels.resistance3
-      ];
-      isAboveResistance = resistanceLevels.some(level => currentPrice > level);
-    }
+    // Use comprehensive levels system for resistance breakout detection
+    const signals = this.comprehensiveLevels.getTradingSignals(currentPrice);
+    const longEntry = signals.longEntry;
+    
+    // Check if current price is above the long entry level
+    const isAboveResistance = longEntry ? currentPrice > longEntry.price : false;
     
     // Check volume confirmation
     const hasVolumeConfirmation = this.technicalAnalysis.isVolumeAboveThreshold(indicators1h.volumeRatio);
@@ -243,7 +268,54 @@ export class HedgeStrategy {
     // Check trend alignment
     const trendAligned = indicators4h.trend === 'BULLISH' || indicators4h.trend === 'SIDEWAYS';
 
+    if (isAboveResistance && longEntry) {
+      logger.info('🔥 LONG Entry Signal Detected', {
+        currentPrice: currentPrice.toFixed(4),
+        resistanceLevel: longEntry.price.toFixed(4),
+        description: longEntry.description,
+        importance: longEntry.importance,
+        zone: longEntry.zone
+      });
+    }
+
     return isAboveResistance && hasVolumeConfirmation && rsiValid && trendAligned;
+  }
+
+  /**
+   * Check if price is breaking support with volume confirmation
+   */
+  private isSupportBreakdown(
+    currentPrice: number, 
+    indicators4h: TechnicalIndicators, 
+    indicators1h: TechnicalIndicators
+  ): boolean {
+    // Use comprehensive levels system for support breakdown detection
+    const signals = this.comprehensiveLevels.getTradingSignals(currentPrice);
+    const shortEntry = signals.shortEntry;
+    
+    // Check if current price is below the short entry level
+    const isBelowSupport = shortEntry ? currentPrice < shortEntry.price : false;
+    
+    // Check volume confirmation
+    const hasVolumeConfirmation = this.technicalAnalysis.isVolumeAboveThreshold(indicators1h.volumeRatio);
+    
+    // Check RSI is not oversold
+    const rsiValid = this.technicalAnalysis.isRSIInValidRange(indicators1h.rsi);
+    
+    // Check trend alignment (bearish or sideways for short entries)
+    const trendAligned = indicators4h.trend === 'BEARISH' || indicators4h.trend === 'SIDEWAYS';
+
+    if (isBelowSupport && shortEntry) {
+      logger.info('🔥 SHORT Entry Signal Detected', {
+        currentPrice: currentPrice.toFixed(4),
+        supportLevel: shortEntry.price.toFixed(4),
+        description: shortEntry.description,
+        importance: shortEntry.importance,
+        zone: shortEntry.zone
+      });
+    }
+
+    return isBelowSupport && hasVolumeConfirmation && rsiValid && trendAligned;
   }
 
   /**
@@ -257,19 +329,36 @@ export class HedgeStrategy {
     const hasAnchorHedge = this.currentPositions.some(pos => pos.type === 'ANCHOR_HEDGE' && pos.status === 'OPEN');
     if (hasAnchorHedge) return false;
 
-    // Check if price is below first support (bad scenario)
-    let isBelowFirstSupport = false;
+    // Check hedge conditions based on anchor side
+    if (anchorPosition.side === 'LONG') {
+      // For LONG anchor: hedge when price drops below first support
+      let isBelowFirstSupport = false;
 
-    if (this.useDynamicLevels) {
-      // Use dynamic support levels
-      const nearestSupport = this.dynamicLevels.getNearestSupport(currentPrice);
-      isBelowFirstSupport = nearestSupport ? currentPrice < nearestSupport.price : false;
+      if (this.useDynamicLevels) {
+        // Use dynamic support levels
+        const nearestSupport = this.dynamicLevels.getNearestSupport(currentPrice);
+        isBelowFirstSupport = nearestSupport ? currentPrice < nearestSupport.price : false;
+      } else {
+        // Use static support levels - price below first support
+        isBelowFirstSupport = currentPrice < this.supportResistanceLevels.support1;
+      }
+
+      return isBelowFirstSupport;
     } else {
-      // Use static support levels - price below first support
-      isBelowFirstSupport = currentPrice < this.supportResistanceLevels.support1;
-    }
+      // For SHORT anchor: hedge when price rises above first resistance
+      let isAboveFirstResistance = false;
 
-    return isBelowFirstSupport;
+      if (this.useDynamicLevels) {
+        // Use dynamic resistance levels
+        const nearestResistance = this.dynamicLevels.getNearestResistance(currentPrice);
+        isAboveFirstResistance = nearestResistance ? currentPrice > nearestResistance.price : false;
+      } else {
+        // Use static resistance levels - price above first resistance
+        isAboveFirstResistance = currentPrice > this.supportResistanceLevels.resistance1;
+      }
+
+      return isAboveFirstResistance;
+    }
   }
 
   /**
@@ -283,21 +372,40 @@ export class HedgeStrategy {
     const hasOpportunityHedge = this.currentPositions.some(pos => pos.type === 'OPPORTUNITY_HEDGE' && pos.status === 'OPEN');
     if (hasOpportunityHedge) return false;
 
-    // Check if price is below second support (bad scenario for opportunity)
-    let isBelowSecondSupport = false;
+    // Check hedge conditions based on opportunity side
+    if (opportunityPosition.side === 'LONG') {
+      // For LONG opportunity: hedge when price drops below second support
+      let isBelowSecondSupport = false;
 
-    if (this.useDynamicLevels) {
-      // Use dynamic support levels
-      const supportLevels = this.dynamicLevels.getSupportLevels();
-      if (supportLevels.length >= 2 && supportLevels[1]) {
-        isBelowSecondSupport = currentPrice < supportLevels[1].price;
+      if (this.useDynamicLevels) {
+        // Use dynamic support levels
+        const supportLevels = this.dynamicLevels.getSupportLevels();
+        if (supportLevels.length >= 2 && supportLevels[1]) {
+          isBelowSecondSupport = currentPrice < supportLevels[1].price;
+        }
+      } else {
+        // Use static support levels - price below second support
+        isBelowSecondSupport = currentPrice < this.supportResistanceLevels.support2;
       }
-    } else {
-      // Use static support levels - price below second support
-      isBelowSecondSupport = currentPrice < this.supportResistanceLevels.support2;
-    }
 
-    return isBelowSecondSupport;
+      return isBelowSecondSupport;
+    } else {
+      // For SHORT opportunity: hedge when price rises above second resistance
+      let isAboveSecondResistance = false;
+
+      if (this.useDynamicLevels) {
+        // Use dynamic resistance levels
+        const resistanceLevels = this.dynamicLevels.getResistanceLevels();
+        if (resistanceLevels.length >= 2 && resistanceLevels[1]) {
+          isAboveSecondResistance = currentPrice > resistanceLevels[1].price;
+        }
+      } else {
+        // Use static resistance levels - price above second resistance
+        isAboveSecondResistance = currentPrice > this.supportResistanceLevels.resistance2;
+      }
+
+      return isAboveSecondResistance;
+    }
   }
 
   /**
@@ -326,18 +434,29 @@ export class HedgeStrategy {
     indicators4h: TechnicalIndicators, 
     indicators1h: TechnicalIndicators
   ): boolean {
-    // Check if price is near second support level
-    const isNearSecondSupport = this.technicalAnalysis.isNearLevel(currentPrice, [
-      this.supportResistanceLevels.support2
-    ]);
+    // Get anchor position to determine opportunity direction
+    const anchorPosition = this.currentPositions.find(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
+    if (!anchorPosition) return false;
 
     // Check volume confirmation
     const hasVolumeConfirmation = this.technicalAnalysis.isVolumeAboveThreshold(indicators1h.volumeRatio);
 
-    // Check RSI is not oversold
+    // Check RSI is in valid range
     const rsiValid = this.technicalAnalysis.isRSIInValidRange(indicators1h.rsi);
 
-    return isNearSecondSupport && hasVolumeConfirmation && rsiValid;
+    if (anchorPosition.side === 'LONG') {
+      // For LONG anchor: opportunity at second support level
+      const isNearSecondSupport = this.technicalAnalysis.isNearLevel(currentPrice, [
+        this.supportResistanceLevels.support2
+      ]);
+      return isNearSecondSupport && hasVolumeConfirmation && rsiValid;
+    } else {
+      // For SHORT anchor: opportunity at second resistance level
+      const isNearSecondResistance = this.technicalAnalysis.isNearLevel(currentPrice, [
+        this.supportResistanceLevels.resistance2
+      ]);
+      return isNearSecondResistance && hasVolumeConfirmation && rsiValid;
+    }
   }
 
   /**
@@ -401,5 +520,49 @@ export class HedgeStrategy {
       supportLevels: this.dynamicLevels.getSupportLevels(),
       resistanceLevels: this.dynamicLevels.getResistanceLevels()
     };
+  }
+
+  /**
+   * Get current support levels (for monitoring)
+   */
+  getSupportLevels(): number[] {
+    if (this.useDynamicLevels) {
+      return this.dynamicLevels.getSupportLevels().map(level => level.price);
+    } else {
+      return [
+        this.supportResistanceLevels.support1,
+        this.supportResistanceLevels.support2,
+        this.supportResistanceLevels.support3
+      ];
+    }
+  }
+
+  /**
+   * Get current resistance levels (for monitoring)
+   */
+  getResistanceLevels(): number[] {
+    if (this.useDynamicLevels) {
+      return this.dynamicLevels.getResistanceLevels().map(level => level.price);
+    } else {
+      return [
+        this.supportResistanceLevels.resistance1,
+        this.supportResistanceLevels.resistance2,
+        this.supportResistanceLevels.resistance3
+      ];
+    }
+  }
+
+  /**
+   * Get comprehensive level information
+   */
+  getComprehensiveLevelsInfo(currentPrice: number): any {
+    return this.comprehensiveLevels.getTradingSignals(currentPrice);
+  }
+
+  /**
+   * Log comprehensive levels information
+   */
+  logComprehensiveLevels(currentPrice: number): void {
+    this.comprehensiveLevels.logLevelsInfo(currentPrice);
   }
 }

@@ -181,19 +181,26 @@ HISTORICAL_1H_DAYS=14
 
 The bot follows this exact sequence:
 
-#### **1. Anchor Open**
-- **Trigger**: Price breaks resistance level with volume confirmation
-- **Action**: Open LONG position (20% × 10x leverage)
-- **Conditions**: RSI 30-70, 4H trend bullish/sideways, volume > 1.5x average
+#### **1. Anchor Open (Bidirectional)**
+- **Bull Market**: Price breaks resistance level with volume confirmation
+  - **Action**: Open LONG position (20% × 10x leverage)
+  - **Conditions**: RSI 30-70, 4H trend bullish/sideways, volume > 1.5x average
+- **Bear Market**: Price breaks support level with volume confirmation
+  - **Action**: Open SHORT position (20% × 10x leverage)
+  - **Conditions**: RSI 30-70, 4H trend bearish/sideways, volume > 1.5x average
 
-#### **2. If Bad → Hedge1 Open**
-- **Trigger**: Price drops below first support level
-- **Action**: Open SHORT hedge position (30% × 15x leverage)
-- **Purpose**: Protect anchor position from further losses
+#### **2. If Bad → Hedge1 Open (Opposite Direction)**
+- **For LONG Anchor**: Price drops below first support level
+  - **Action**: Open SHORT hedge position (30% × 15x leverage)
+  - **Purpose**: Protect long anchor from further losses
+- **For SHORT Anchor**: Price rises above first resistance level
+  - **Action**: Open LONG hedge position (30% × 15x leverage)
+  - **Purpose**: Protect short anchor from further losses
 
 #### **3. Hedge1 Take Profit = Anchor Liquidation Price**
 - **Automatic**: Hedge automatically takes profit when anchor gets liquidated
-- **Calculation**: `Anchor Liquidation Price = Entry Price × (1 - 1/10)`
+- **LONG Anchor**: `Liquidation Price = Entry Price × (1 - 1/10)`
+- **SHORT Anchor**: `Liquidation Price = Entry Price × (1 + 1/10)`
 - **Result**: Hedge profits exactly when anchor loses
 
 #### **4. Hedge1 Closed if Price Returns to Entry**
@@ -201,9 +208,9 @@ The bot follows this exact sequence:
 - **Action**: Close hedge position at market price
 - **Purpose**: Lock in hedge profits when market recovers
 
-#### **5. Same for Opportunity and Its Hedge**
-- **Opportunity Position**: Opens at second support level
-- **Opportunity Hedge**: Opens when price drops below second support
+#### **5. Same for Opportunity and Its Hedge (Bidirectional)**
+- **LONG Opportunity**: Opens at second support level, hedged with SHORT
+- **SHORT Opportunity**: Opens at second resistance level, hedged with LONG
 - **Same Logic**: Take profit at opportunity liquidation, close on return to entry
 
 ### **Margin Mode: ISOLATED**

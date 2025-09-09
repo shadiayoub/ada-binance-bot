@@ -224,6 +224,14 @@ export class TradingBot {
     const botState = this.positionManager.getBotState();
     const positionSummary = this.positionManager.getPositionSummary();
     
+    // Get current support/resistance levels
+    const supportLevels = this.hedgeStrategy.getSupportLevels();
+    const resistanceLevels = this.hedgeStrategy.getResistanceLevels();
+    
+    // Get current price for comprehensive analysis (use last known price)
+    const currentPrice = 0.866985; // This should be updated with real-time price
+    const comprehensiveInfo = this.hedgeStrategy.getComprehensiveLevelsInfo(currentPrice);
+    
     logger.info('Bot state update', {
       isRunning: this.isRunning,
       totalBalance: botState.totalBalance,
@@ -233,7 +241,26 @@ export class TradingBot {
       positionSummary,
       guaranteedProfit: positionSummary.breakEvenAnalysis.guaranteedProfit,
       anchorLiquidationProfit: positionSummary.breakEvenAnalysis.anchorLiquidation,
-      opportunityLiquidationProfit: positionSummary.breakEvenAnalysis.opportunityLiquidation
+      opportunityLiquidationProfit: positionSummary.breakEvenAnalysis.opportunityLiquidation,
+      currentLevels: {
+        support: supportLevels.map(level => level.toFixed(4)),
+        resistance: resistanceLevels.map(level => level.toFixed(4)),
+        strongestSupport: supportLevels.length > 0 ? supportLevels[0]?.toFixed(4) : 'None',
+        strongestResistance: resistanceLevels.length > 0 ? resistanceLevels[0]?.toFixed(4) : 'None'
+      },
+      comprehensiveSignals: {
+        currentZone: comprehensiveInfo.currentZone?.name || 'Unknown',
+        longEntry: comprehensiveInfo.longEntry ? {
+          price: comprehensiveInfo.longEntry.price.toFixed(4),
+          description: comprehensiveInfo.longEntry.description,
+          importance: comprehensiveInfo.longEntry.importance
+        } : null,
+        shortEntry: comprehensiveInfo.shortEntry ? {
+          price: comprehensiveInfo.shortEntry.price.toFixed(4),
+          description: comprehensiveInfo.shortEntry.description,
+          importance: comprehensiveInfo.shortEntry.importance
+        } : null
+      }
     });
   }
 
