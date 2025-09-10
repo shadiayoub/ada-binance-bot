@@ -292,8 +292,15 @@ export class HedgeStrategy {
     const signals = this.comprehensiveLevels.getTradingSignals(currentPrice);
     const longEntry = signals.longEntry;
     
-    // Check if current price is above the long entry level
-    const isAboveResistance = longEntry ? currentPrice > longEntry.price : false;
+    // Check if we have a valid long entry signal
+    if (!longEntry) {
+      return false;
+    }
+    
+    // Check if current price is near or at the resistance level (within 1.0%)
+    const priceTolerance = 0.01; // 1.0% tolerance
+    const isNearResistance = Math.abs(currentPrice - longEntry.price) / longEntry.price <= priceTolerance;
+    const isAboveResistance = currentPrice >= longEntry.price;
     
     // Check volume confirmation
     const hasVolumeConfirmation = this.technicalAnalysis.isVolumeAboveThreshold(indicators1h.volumeRatio);
@@ -304,17 +311,25 @@ export class HedgeStrategy {
     // Check trend alignment
     const trendAligned = indicators4h.trend === 'BULLISH' || indicators4h.trend === 'SIDEWAYS';
 
-    if (isAboveResistance && longEntry) {
+    // Entry trigger: near resistance OR above resistance
+    const shouldEnter = (isNearResistance || isAboveResistance) && hasVolumeConfirmation && rsiValid && trendAligned;
+
+    if (shouldEnter) {
       logger.info('🔥 LONG Entry Signal Detected', {
         currentPrice: currentPrice.toFixed(4),
         resistanceLevel: longEntry.price.toFixed(4),
         description: longEntry.description,
         importance: longEntry.importance,
-        zone: longEntry.zone
+        zone: longEntry.zone,
+        isNearResistance,
+        isAboveResistance,
+        hasVolumeConfirmation,
+        rsiValid,
+        trendAligned
       });
     }
 
-    return isAboveResistance && hasVolumeConfirmation && rsiValid && trendAligned;
+    return shouldEnter;
   }
 
   /**
@@ -329,8 +344,15 @@ export class HedgeStrategy {
     const signals = this.comprehensiveLevels.getTradingSignals(currentPrice);
     const shortEntry = signals.shortEntry;
     
-    // Check if current price is below the short entry level
-    const isBelowSupport = shortEntry ? currentPrice < shortEntry.price : false;
+    // Check if we have a valid short entry signal
+    if (!shortEntry) {
+      return false;
+    }
+    
+    // Check if current price is near or at the support level (within 1.0%)
+    const priceTolerance = 0.01; // 1.0% tolerance
+    const isNearSupport = Math.abs(currentPrice - shortEntry.price) / shortEntry.price <= priceTolerance;
+    const isBelowSupport = currentPrice <= shortEntry.price;
     
     // Check volume confirmation
     const hasVolumeConfirmation = this.technicalAnalysis.isVolumeAboveThreshold(indicators1h.volumeRatio);
@@ -341,17 +363,25 @@ export class HedgeStrategy {
     // Check trend alignment (bearish or sideways for short entries)
     const trendAligned = indicators4h.trend === 'BEARISH' || indicators4h.trend === 'SIDEWAYS';
 
-    if (isBelowSupport && shortEntry) {
+    // Entry trigger: near support OR below support
+    const shouldEnter = (isNearSupport || isBelowSupport) && hasVolumeConfirmation && rsiValid && trendAligned;
+
+    if (shouldEnter) {
       logger.info('🔥 SHORT Entry Signal Detected', {
         currentPrice: currentPrice.toFixed(4),
         supportLevel: shortEntry.price.toFixed(4),
         description: shortEntry.description,
         importance: shortEntry.importance,
-        zone: shortEntry.zone
+        zone: shortEntry.zone,
+        isNearSupport,
+        isBelowSupport,
+        hasVolumeConfirmation,
+        rsiValid,
+        trendAligned
       });
     }
 
-    return isBelowSupport && hasVolumeConfirmation && rsiValid && trendAligned;
+    return shouldEnter;
   }
 
   /**
