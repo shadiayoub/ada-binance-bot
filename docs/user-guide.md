@@ -374,6 +374,40 @@ The bot follows this exact sequence with **complete bidirectional capabilities**
 ### **Overview**
 The bot now features a **revolutionary Bidirectional Peak Strategy** that transforms the traditional Opportunity strategy into an intelligent market reversal detection system. This strategy **only opens when existing positions are profitable** and uses advanced peak/trough detection to catch market reversals for **double profit potential**.
 
+### **🔧 Important: Code vs Functionality Terminology**
+
+#### **Code Implementation vs User Documentation**
+- **Code Variable Names**: Still uses `OPPORTUNITY` type and `shouldOpenOpportunity()` methods
+- **Actual Functionality**: Implements the new **Peak Strategy** with revolutionary features
+- **Position Type**: `OPPORTUNITY` in code = **Peak Strategy** in behavior
+- **Why**: Maintains code compatibility while adding new functionality
+
+#### **What This Means for Users**
+- **Logs**: May show "Opportunity" terminology (legacy code)
+- **Behavior**: Actually runs the new Peak Strategy features
+- **Functionality**: Market reversal detection, profit requirements, peak/trough detection
+- **Safety**: Only opens when existing positions are profitable
+
+#### **Code Examples in Logs**
+```typescript
+// Code still uses old terminology
+pos.type === 'OPPORTUNITY'           // = Peak Strategy position
+shouldOpenOpportunity()              // = shouldOpenPeakReversal()
+shouldTakeProfitOpportunity()        // = Peak profit-taking logic
+shouldHedgeOpportunity()             // = Peak hedge protection
+```
+
+#### **Actual Functionality**
+```typescript
+// What it actually does (Peak Strategy)
+- Detects market peaks (SHORT entries)
+- Detects market troughs (LONG entries)
+- Only opens when existing position is profitable
+- Uses 5-point pattern recognition
+- Has built-in hedge protection
+- Revolutionary market reversal detection
+```
+
 ### **🛡️ Safety-First Design**
 
 #### **Profit Requirement Safety Rule**
@@ -504,14 +538,23 @@ PEAK_VOLUME_DECREASING=0.8      # Volume threshold for peak confirmation
 PEAK_VOLUME_INCREASING=1.2      # Volume threshold for trough confirmation
 ```
 
-#### **Position Sizing (Same as Opportunity)**
+#### **Position Sizing (Peak Strategy - Uses Opportunity Variables)**
 ```env
+# Note: Code still uses "OPPORTUNITY" variable names for Peak Strategy
 OPPORTUNITY_POSITION_SIZE=0.20  # 20% of balance for Peak positions
 OPPORTUNITY_HEDGE_SIZE=0.30     # 30% of balance for Peak hedges
 OPPORTUNITY_LEVERAGE=10         # 10x leverage for Peak positions
+
+# These variables control the Peak Strategy functionality
+# despite using "OPPORTUNITY" in the variable names
 ```
 
 ### **📊 Peak Strategy Logs**
+
+#### **Important: Log Terminology**
+- **Log Messages**: May show "Opportunity" terminology (legacy code)
+- **Actual Behavior**: Implements Peak Strategy functionality
+- **Position Types**: `OPPORTUNITY` in logs = Peak Strategy positions
 
 #### **Peak Detection Logs**
 ```
@@ -529,6 +572,13 @@ OPPORTUNITY_LEVERAGE=10         # 10x leverage for Peak positions
   anchorProfit: "1.23%",
   peakPrice: "0.8947",
   reason: "Market peaked after LONG profit - opening SHORT reversal"
+}
+
+// Note: Logs may show "OPPORTUNITY" type but it's actually Peak Strategy
+info: Position opened: {
+  type: "OPPORTUNITY",        // = Peak Strategy position
+  side: "SHORT",              // = Peak reversal position
+  reason: "Peak reversal"     // = Actual functionality
 }
 ```
 
@@ -579,19 +629,30 @@ OPPORTUNITY_LEVERAGE=10         # 10x leverage for Peak positions
 }
 ```
 
-### **🎯 Peak Strategy vs Opportunity Strategy**
+### **🎯 Peak Strategy vs Traditional Opportunity Strategy**
 
-#### **Before (Opportunity Strategy)**
+#### **Before (Traditional Opportunity Strategy)**
 - **Entry**: At support/resistance levels
 - **Success Rate**: ~60-70%
 - **Profit**: Medium-term gains
 - **Risk**: Standard market risk
+- **Code**: `shouldOpenOpportunity()` with basic level-based entries
 
-#### **After (Peak Strategy)**
+#### **After (Peak Strategy - Same Code, New Functionality)**
 - **Entry**: After peak/trough detection
 - **Success Rate**: ~75-85% (better timing)
 - **Profit**: Medium-term gains + reversal profits
 - **Risk**: Only opens when profitable (safer)
+- **Code**: Still `shouldOpenOpportunity()` but with revolutionary peak detection logic
+
+#### **Code Evolution**
+```typescript
+// Same method name, completely different functionality
+shouldOpenOpportunity() {
+  // OLD: Basic support/resistance level entries
+  // NEW: Peak/trough detection + profit requirement + bidirectional logic
+}
+```
 
 ### **🚀 Expected Performance**
 
@@ -1406,6 +1467,18 @@ Error: Precision is over the maximum defined for this asset. {"code":-1111}
 - Check if dynamic levels are being detected
 - Monitor learning logs for data fetch success
 
+**Peak Strategy Terminology Confusion**
+```
+Question: "Why do logs show 'OPPORTUNITY' but documentation says 'Peak Strategy'?"
+Answer: The code still uses legacy "OPPORTUNITY" variable names, but the functionality 
+        has been completely transformed into the Peak Strategy. This is normal.
+
+What to expect in logs:
+- Position type: "OPPORTUNITY" = Peak Strategy position
+- Method names: "shouldOpenOpportunity" = Peak reversal detection
+- Functionality: Market peak/trough detection + profit requirements
+```
+
 **API Errors**
 - Verify API credentials
 - Check API permissions
@@ -1521,6 +1594,12 @@ Your ADA Futures Trading Bot now includes:
 - **All Strategies**: Anchor, Peak, and Scalp all support both directions
 - **Unified Logic**: Same entry/exit principles across all strategies
 - **Peak Strategy**: Revolutionary market reversal detection with profit requirement safety
+
+#### **🔧 Important Note: Code vs Documentation**
+- **Code**: Uses `OPPORTUNITY` type for Peak Strategy positions
+- **Documentation**: Refers to it as "Peak Strategy" 
+- **Functionality**: Same revolutionary features regardless of terminology
+- **Logs**: May show "OPPORTUNITY" but it's actually Peak Strategy behavior
 
 #### **✅ Advanced Features:**
 - **Price Peak Detection**: Never miss profit opportunities (all 6 position types)
