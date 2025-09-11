@@ -39,10 +39,15 @@ export class BinanceService {
         canTrade: accountInfo.canTrade 
       });
 
-      // Set margin mode to ISOLATED (CRITICAL for hedge strategy)
+      // Try to enable HEDGE mode for the entire account (optional)
+      try {
+        await this.setPositionSideMode(true); // true enables HEDGE mode
+      } catch (error) {
+        logger.warn('Could not set position side mode - continuing with positionSide parameter in orders');
+      }
+
+      // Then set margin mode to ISOLATED for the specific symbol
       await this.setMarginMode();
-      // TODO: Set position side mode to HEDGE (temporarily disabled until method is found)
-      // await this.setPositionSideMode();
       
       // Set leverage for the trading pair
       await this.setLeverage();
@@ -80,20 +85,38 @@ export class BinanceService {
 
 
   /**
-   * Set position side mode to HEDGE (allows both LONG and SHORT positions)
+   * Set position side mode (HEDGE or ONE_WAY)
+   * Note: This method is disabled due to API method availability issues
+   * The positionSide parameter in orders will handle the mode requirements
    */
-  private async setPositionSideMode(): Promise<void> {
+  private async setPositionSideMode(dualSidePosition: boolean): Promise<void> {
     try {
-      // Try different method name - might be futuresPositionSideDual
-      await this.client.futuresPositionSideDual('true');
-      logger.info('Position side mode set to HEDGE (dual side)');
-    } catch (error) {
-      // If already set to hedge mode, this will throw an error - that's fine
-      if (error instanceof Error && error.message?.includes('No need to change position side')) {
-        logger.info('Position side mode already set to HEDGE (dual side)');
+      // Try to use the generic request method if available
+      if (typeof this.client.request === 'function') {
+        await this.client.request({
+          method: 'POST',
+          path: '/fapi/v1/positionSide/dual',
+          data: {
+            dualSidePosition: dualSidePosition
+          }
+        });
+        
+        const mode = dualSidePosition ? 'HEDGE' : 'ONE_WAY';
+        logger.info(`Position side mode set to ${mode} for account`);
       } else {
-        logger.error('Failed to set position side mode to HEDGE', error);
-        throw error;
+        // If no generic request method is available, skip this step
+        logger.warn('Position side mode setting not available - using positionSide parameter in orders');
+        logger.info('Please manually set your Binance account to HEDGE mode in the web interface');
+      }
+    } catch (error) {
+      // If the mode is already set, we can ignore this error
+      if (error instanceof Error && error.message?.includes('No need to change position side')) {
+        const mode = dualSidePosition ? 'HEDGE' : 'ONE_WAY';
+        logger.info(`Position side mode already set to ${mode} for account`);
+      } else {
+        logger.warn('Could not set position side mode programmatically', error);
+        logger.info('Please manually set your Binance account to HEDGE mode in the web interface');
+        // Don't throw error - continue with positionSide parameter in orders
       }
     }
   }
@@ -209,13 +232,13 @@ export class BinanceService {
         roundedQuantity: roundedQuantity.toString(),
         balanceDifference: (effectiveBalance - this.config.baseBalance).toFixed(2)
       });
-      // In Hedge Mode, Binance automatically handles position sides
-      // We just need to open regular LONG/SHORT positions
+      // In Hedge Mode, we need to specify positionSide for each order
       const order = await this.client.futuresOrder({
         symbol: this.config.tradingPair,
         side: side === 'LONG' ? 'BUY' : 'SELL',
         type: 'MARKET',
-        quantity: roundedQuantity.toString()
+        quantity: roundedQuantity.toString(),
+        positionSide: side // Add positionSide parameter for hedge mode
       });
 
       const position: Position = {
@@ -250,12 +273,13 @@ export class BinanceService {
    */
   async closePosition(position: Position): Promise<void> {
     try {
-      // In Hedge Mode, Binance automatically handles position sides
+      // In Hedge Mode, we need to specify positionSide for each order
       const order = await this.client.futuresOrder({
         symbol: this.config.tradingPair,
         side: position.side === 'LONG' ? 'SELL' : 'BUY',
         type: 'MARKET',
-        quantity: position.size.toFixed(3)
+        quantity: position.size.toFixed(3),
+        positionSide: position.side // Add positionSide parameter for hedge mode
       });
 
       position.status = 'CLOSED';
@@ -411,13 +435,14 @@ export class BinanceService {
    */
   private async closePositionAtPrice(position: Position, price: number): Promise<void> {
     try {
-      // In Hedge Mode, Binance automatically handles position sides
+      // In Hedge Mode, we need to specify positionSide for each order
       const order = await this.client.futuresOrder({
         symbol: this.config.tradingPair,
         side: position.side === 'LONG' ? 'SELL' : 'BUY',
         type: 'LIMIT',
         quantity: position.size.toFixed(3),
-        price: price.toFixed(4)
+        price: price.toFixed(4),
+        positionSide: position.side // Add positionSide parameter for hedge mode
       });
 
       position.status = 'CLOSED';
@@ -444,14 +469,15 @@ export class BinanceService {
    */
   async setTakeProfitOrder(position: Position, takeProfitPrice: number): Promise<void> {
     try {
-      // In Hedge Mode, Binance automatically handles position sides
+      // In Hedge Mode, we need to specify positionSide for each order
       await this.client.futuresOrder({
         symbol: this.config.tradingPair,
         side: position.side === 'LONG' ? 'SELL' : 'BUY',
         type: 'TAKE_PROFIT_MARKET',
         quantity: position.size.toFixed(3),
         stopPrice: takeProfitPrice.toFixed(4),
-        timeInForce: 'GTC'
+        timeInForce: 'GTC',
+        positionSide: position.side // Add positionSide parameter for hedge mode
       });
 
       logger.info('Take profit order set', {
