@@ -52,9 +52,18 @@ export class ScalpStrategy {
   }
 
   /**
+   * Check if we can open a scalp position
+   */
+  canOpenScalpPosition(): boolean {
+    // Scalp positions are independent and can run alongside anchor/opportunity
+    // Only check if there's already an active scalp position
+    return !this.activeScalpTrade.scalpPosition;
+  }
+
+  /**
    * Execute scalp strategy
    */
-  async executeScalpStrategy(marketData4h: MarketData[], marketData1h: MarketData[], marketData15m: MarketData[]): Promise<TradingSignal[]> {
+async executeScalpStrategy(marketData4h: MarketData[], marketData1h: MarketData[], marketData15m: MarketData[]): Promise<TradingSignal[]> {
     const signals: TradingSignal[] = [];
     const currentPrice = await this.binanceService.getCurrentPrice();
     
