@@ -19,6 +19,7 @@ export const tradingConfig: TradingConfig = {
   historical4hDays: parseInt(process.env.HISTORICAL_4H_DAYS || '180'),
   historical1hDays: parseInt(process.env.HISTORICAL_1H_DAYS || '7'),
   historical15mDays: parseInt(process.env.HISTORICAL_15M_DAYS || '1'),
+  priceUpdateInterval: parseInt(process.env.PRICE_UPDATE_INTERVAL || '10'), // seconds
 };
 
 export const positionSizing: PositionSizing = {

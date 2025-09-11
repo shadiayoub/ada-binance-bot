@@ -8,6 +8,7 @@ export interface TradingConfig {
   historical4hDays: number;
   historical1hDays: number;
   historical15mDays: number;
+  priceUpdateInterval: number; // seconds
 }
 
 export interface PositionSizing {

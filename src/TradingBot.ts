@@ -121,6 +121,9 @@ export class TradingBot {
         this.cronJob = null;
       }
       
+      // Cleanup Binance service resources
+      this.binanceService.cleanup();
+      
       this.isRunning = false;
       
       logger.info('Trading bot stopped successfully');
@@ -131,11 +134,37 @@ export class TradingBot {
   }
 
   /**
+   * Get real-time price for immediate decisions
+   */
+  async getRealTimePrice(): Promise<number> {
+    try {
+      // Try to get cached price first (fast)
+      const cachedPrice = this.binanceService.getCachedPrice();
+      if (cachedPrice !== null) {
+        return cachedPrice;
+      }
+      
+      // Fallback to API call if cache is stale
+      return await this.binanceService.getCurrentPrice();
+    } catch (error) {
+      logger.error('Failed to get real-time price', error);
+      throw error;
+    }
+  }
+
+  /**
    * Main trading loop
    */
   private async tradingLoop(): Promise<void> {
     try {
       logger.debug('Executing trading loop...');
+      
+      // Get real-time price for accurate decisions
+      const currentPrice = await this.getRealTimePrice();
+      logger.debug('Real-time price fetched', { 
+        price: currentPrice.toFixed(4),
+        symbol: this.config.tradingPair 
+      });
       
       // Update positions from Binance
       await this.positionManager.updatePositions();

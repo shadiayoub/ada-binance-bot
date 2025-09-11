@@ -14,6 +14,12 @@ export class BinanceService {
   private cachedBalance: { total: number; available: number } | null = null;
   private lastBalanceUpdate: number = 0;
   private balanceCacheTimeout: number = 30000; // 30 seconds cache
+  
+  // Real-time price caching
+  private cachedPrice: number | null = null;
+  private lastPriceUpdate: number = 0;
+  private priceCacheTimeout: number = 10000; // 10 seconds cache for price
+  private priceUpdateInterval: NodeJS.Timeout | null = null;
 
   constructor(config: TradingConfig) {
     this.config = config;
@@ -22,6 +28,9 @@ export class BinanceService {
       apiSecret: config.secretKey,
       getTime: () => Date.now() + this.timeOffset,
     });
+    
+    // Set price cache timeout based on config
+    this.priceCacheTimeout = config.priceUpdateInterval * 1000; // Convert to milliseconds
   }
 
   /**
@@ -51,6 +60,9 @@ export class BinanceService {
       
       // Set leverage for the trading pair
       await this.setLeverage();
+      
+      // Start real-time price updates
+      this.startRealTimePriceUpdates();
       
       logger.info('Binance service initialized successfully');
     } catch (error) {
@@ -158,16 +170,97 @@ export class BinanceService {
   }
 
   /**
-   * Get current market price
+   * Get current market price with caching
    */
   async getCurrentPrice(): Promise<number> {
     try {
+      // Check if we have a recent cached price
+      const now = Date.now();
+      if (this.cachedPrice && (now - this.lastPriceUpdate) < this.priceCacheTimeout) {
+        return this.cachedPrice;
+      }
+
+      // Fetch fresh price from API
       const ticker = await this.client.futuresPrices({ symbol: this.config.tradingPair });
-      return parseFloat(ticker[this.config.tradingPair]);
+      const price = parseFloat(ticker[this.config.tradingPair]);
+      
+      // Update cache
+      this.cachedPrice = price;
+      this.lastPriceUpdate = now;
+      
+      return price;
     } catch (error) {
       logger.error('Failed to get current price', error);
       throw error;
     }
+  }
+
+  /**
+   * Get cached price (fast, no API call)
+   */
+  getCachedPrice(): number | null {
+    const now = Date.now();
+    if (this.cachedPrice && (now - this.lastPriceUpdate) < this.priceCacheTimeout) {
+      return this.cachedPrice;
+    }
+    return null;
+  }
+
+  /**
+   * Start real-time price updates
+   */
+  private startRealTimePriceUpdates(): void {
+    // Clear any existing interval
+    if (this.priceUpdateInterval) {
+      clearInterval(this.priceUpdateInterval);
+    }
+
+    // Update price every 10 seconds
+    this.priceUpdateInterval = setInterval(async () => {
+      try {
+        const ticker = await this.client.futuresPrices({ symbol: this.config.tradingPair });
+        const price = parseFloat(ticker[this.config.tradingPair]);
+        
+        const oldPrice = this.cachedPrice;
+        this.cachedPrice = price;
+        this.lastPriceUpdate = Date.now();
+        
+        // Log significant price changes
+        if (oldPrice && Math.abs(price - oldPrice) / oldPrice > 0.001) { // 0.1% change
+          logger.debug('Price updated', {
+            oldPrice: oldPrice.toFixed(4),
+            newPrice: price.toFixed(4),
+            change: `${((price - oldPrice) / oldPrice * 100).toFixed(2)}%`,
+            symbol: this.config.tradingPair
+          });
+        }
+      } catch (error) {
+        logger.error('Failed to update cached price', error);
+      }
+    }, this.priceCacheTimeout);
+
+    logger.info('Real-time price updates started', {
+      interval: `${this.priceCacheTimeout / 1000}s`,
+      symbol: this.config.tradingPair
+    });
+  }
+
+  /**
+   * Stop real-time price updates
+   */
+  private stopRealTimePriceUpdates(): void {
+    if (this.priceUpdateInterval) {
+      clearInterval(this.priceUpdateInterval);
+      this.priceUpdateInterval = null;
+      logger.info('Real-time price updates stopped');
+    }
+  }
+
+  /**
+   * Cleanup resources
+   */
+  cleanup(): void {
+    this.stopRealTimePriceUpdates();
   }
 
   /**
