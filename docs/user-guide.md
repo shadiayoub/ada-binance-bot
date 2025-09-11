@@ -66,6 +66,28 @@ pnpm run start
 
 **🚨 Without HEDGE mode, you'll get error: `Order's position side does not match user's setting. {"code":-4061}`**
 
+### **✅ Position Side Parameter Fix (Latest Update)**
+
+The bot now includes the **positionSide parameter** in all order operations to ensure compatibility with Binance Hedge Mode:
+
+#### **What Was Fixed:**
+- **✅ Added `positionSide: 'LONG'` or `positionSide: 'SHORT'`** to all order operations
+- **✅ Fixed `openPosition` method** with proper positionSide parameter
+- **✅ Fixed `closePosition` method** with proper positionSide parameter  
+- **✅ Fixed `setTakeProfitOrder` method** with proper positionSide parameter
+- **✅ Graceful fallback** if position side mode setting fails
+
+#### **Expected Results:**
+```
+✅ Position opened successfully: LONG 453 ADA @ 0.8800
+✅ Position closed successfully: SHORT 453 ADA @ 0.8768
+```
+
+Instead of:
+```
+❌ Failed to open position Order's position side does not match user's setting.
+```
+
 ## 🌟 **Key Features**
 
 ### **Revolutionary Trading Capabilities**
@@ -1112,6 +1134,53 @@ npm run test-profit-taking
 npm run show-levels
 ```
 
+#### **Hedge Condition Monitoring (Latest Update)**
+
+Monitor hedge conditions in real-time with these log patterns:
+
+**Current Hedge Status:**
+```bash
+# Look for hedge condition logs
+grep "🔍 Checking hedge conditions" logs/trading-bot.log
+
+# Monitor hedge evaluation results
+grep "🔍 Hedge evaluation result" logs/trading-bot.log
+
+# Check dynamic support levels
+grep "🔍 Dynamic hedge check" logs/trading-bot.log
+```
+
+**Example Monitoring Output:**
+```
+🔍 Checking hedge conditions for ANCHOR position: {
+  anchorSide: "LONG",
+  anchorEntryPrice: 0.8811,
+  currentPrice: 0.8796,
+  anchorPnL: "-0.17%"
+}
+
+🔍 Dynamic hedge check for LONG ANCHOR: {
+  currentPrice: 0.8796,
+  nearestSupportPrice: 0.8768,
+  isBelowSupport: false,
+  useDynamicLevels: true
+}
+
+🔍 Hedge evaluation result: {
+  shouldHedge: false,
+  currentPrice: 0.8796
+}
+```
+
+**Hedge Opening Alert:**
+```bash
+# Watch for hedge opening signals
+grep "shouldHedge.*true" logs/trading-bot.log
+
+# Monitor hedge position openings
+grep "HEDGE Signal Generated" logs/trading-bot.log
+```
+
 #### **Position Status**
 The bot logs position updates every 5 minutes:
 ```
@@ -1158,6 +1227,49 @@ info: Market data fetched {
   "4h_period": "180 days",
   "1h_period": "7 days"
 }
+```
+
+#### **Hedge Condition Debug Logging (Latest Update)**
+
+The bot now provides **comprehensive hedge condition monitoring** with detailed debug logs:
+
+```
+🔍 Checking hedge conditions for ANCHOR position: {
+  anchorSide: "LONG",
+  anchorEntryPrice: 0.8811,
+  currentPrice: 0.8796,
+  anchorPnL: "-0.17%"
+}
+
+🔍 Dynamic hedge check for LONG ANCHOR: {
+  currentPrice: 0.8796,
+  nearestSupportPrice: 0.8768,
+  isBelowSupport: false,
+  useDynamicLevels: true
+}
+
+🔍 Hedge evaluation result: {
+  shouldHedge: false,
+  currentPrice: 0.8796
+}
+```
+
+#### **Hedge Opening Trigger Logs**
+When hedge conditions are met, you'll see:
+```
+🔍 Dynamic hedge check for LONG ANCHOR: {
+  currentPrice: 0.8767,
+  nearestSupportPrice: 0.8768,
+  isBelowSupport: true,
+  useDynamicLevels: true
+}
+
+🔍 Hedge evaluation result: {
+  shouldHedge: true,
+  currentPrice: 0.8767
+}
+
+🎯 HEDGE Signal Generated: SHORT position at 0.8767
 ```
 
 #### **Liquidation-Based Hedge Status**
@@ -1442,15 +1554,35 @@ tail -f logs/trading-bot.log
 - Ensure hedge closes when price returns to entry
 - Monitor hedge position status
 
-**Position Side Error (CRITICAL)**
+**Position Side Error (CRITICAL) - FIXED!**
 ```
 Error: Order's position side does not match user's setting. {"code":-4061}
 ```
-**Solution**: Your Binance account must be set to **HEDGE MODE**:
+**✅ SOLUTION IMPLEMENTED**: The bot now includes the `positionSide` parameter in all orders:
+
+#### **What Was Fixed:**
+- **✅ Added `positionSide: 'LONG'` or `positionSide: 'SHORT'`** to all order operations
+- **✅ Fixed `openPosition` method** with proper positionSide parameter
+- **✅ Fixed `closePosition` method** with proper positionSide parameter  
+- **✅ Fixed `setTakeProfitOrder` method** with proper positionSide parameter
+
+#### **Still Required:**
+Your Binance account must be set to **HEDGE MODE**:
 1. Log into Binance Futures
 2. Click profile icon → Position Mode
 3. Change from "One-way Mode" to "Hedge Mode"
 4. Restart the bot
+
+#### **Expected Results After Fix:**
+```
+✅ Position opened successfully: LONG 453 ADA @ 0.8800
+✅ Position closed successfully: SHORT 453 ADA @ 0.8768
+```
+
+#### **If You Still See the Error:**
+- Verify your account is in Hedge Mode
+- Check that you're using the latest bot version
+- Ensure the bot is properly restarted after Hedge Mode change
 
 **Precision Errors**
 ```
@@ -1466,6 +1598,40 @@ Error: Precision is over the maximum defined for this asset. {"code":-1111}
 - Ensure 6 months of 4H data is loaded (1,080 candles)
 - Check if dynamic levels are being detected
 - Monitor learning logs for data fetch success
+
+**Hedge Condition Monitoring Issues**
+```
+Question: "I don't see hedge condition logs - is the hedge system working?"
+Answer: Look for these specific logs in your bot output:
+
+✅ Expected Hedge Logs:
+🔍 Checking hedge conditions for ANCHOR position
+🔍 Dynamic hedge check for LONG ANCHOR
+🔍 Hedge evaluation result
+
+❌ If Missing: The hedge strategy might not be running
+✅ If Present: Hedge system is working correctly
+```
+
+**Hedge Opening Questions**
+```
+Question: "When will my hedge open?"
+Answer: Look for these logs to see exact trigger conditions:
+
+Current Status:
+🔍 Dynamic hedge check for LONG ANCHOR: {
+  currentPrice: 0.8796,
+  nearestSupportPrice: 0.8768,
+  isBelowSupport: false
+}
+
+Hedge Will Open When:
+🔍 Dynamic hedge check for LONG ANCHOR: {
+  currentPrice: 0.8767,  // Below 0.8768
+  nearestSupportPrice: 0.8768,
+  isBelowSupport: true   // This triggers hedge
+}
+```
 
 **Peak Strategy Terminology Confusion**
 ```
@@ -1621,6 +1787,28 @@ Your ADA Futures Trading Bot now includes:
 - **Guaranteed Protection**: Liquidation-based hedging eliminates losses
 - **Automatic Scaling**: Dynamic balance system grows with your account
 - **Risk Reduction**: Peak Strategy only opens when profitable (safer than Opportunity)
+
+### **🚀 Latest Updates (Current Version)**
+
+#### **✅ Position Side Parameter Fix**
+- **Fixed**: All order operations now include `positionSide` parameter
+- **Result**: No more -4061 errors when using Hedge Mode
+- **Compatibility**: Full Binance Hedge Mode support
+
+#### **✅ Hedge Condition Debug Logging**
+- **Added**: Comprehensive hedge condition monitoring
+- **Visibility**: Real-time hedge trigger level tracking
+- **Monitoring**: Exact price levels for hedge opening
+
+#### **✅ Enhanced Monitoring**
+- **New Logs**: `🔍 Checking hedge conditions for ANCHOR position`
+- **Dynamic Levels**: `🔍 Dynamic hedge check for LONG ANCHOR`
+- **Evaluation Results**: `🔍 Hedge evaluation result`
+
+#### **✅ Improved Troubleshooting**
+- **Updated**: Position side error solutions
+- **Added**: Hedge condition monitoring guidance
+- **Enhanced**: Real-time monitoring commands
 
 ## 📞 **Support**
 

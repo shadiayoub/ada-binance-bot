@@ -140,21 +140,37 @@ export class HedgeStrategy {
 
     // Check for anchor hedge signal
     const anchorPosition = this.currentPositions.find(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
-    if (anchorPosition && this.shouldHedgeAnchor(currentPrice, indicators1h)) {
-      // Determine hedge direction based on anchor side
-      const hedgeDirection = anchorPosition.side === 'LONG' ? 'SHORT' : 'LONG';
-      const hedgeReason = anchorPosition.side === 'LONG' 
-        ? 'Price below first support, opening anchor hedge (SHORT)'
-        : 'Price above first resistance, opening anchor hedge (LONG)';
-      
-      signals.push({
-        type: 'HEDGE',
-        position: hedgeDirection,
-        price: currentPrice,
-        confidence: 0.8,
-        reason: hedgeReason,
-        timestamp: new Date()
+    
+    if (anchorPosition) {
+      logger.info('🔍 Checking hedge conditions for ANCHOR position', {
+        anchorSide: anchorPosition.side,
+        anchorEntryPrice: anchorPosition.entryPrice,
+        currentPrice: currentPrice,
+        anchorPnL: ((currentPrice - anchorPosition.entryPrice) / anchorPosition.entryPrice * 100).toFixed(2) + '%'
       });
+      
+      const shouldHedge = this.shouldHedgeAnchor(currentPrice, indicators1h);
+      logger.info('🔍 Hedge evaluation result', {
+        shouldHedge: shouldHedge,
+        currentPrice: currentPrice
+      });
+      
+      if (shouldHedge) {
+        // Determine hedge direction based on anchor side
+        const hedgeDirection = anchorPosition.side === 'LONG' ? 'SHORT' : 'LONG';
+        const hedgeReason = anchorPosition.side === 'LONG' 
+          ? 'Price below first support, opening anchor hedge (SHORT)'
+          : 'Price above first resistance, opening anchor hedge (LONG)';
+        
+        signals.push({
+          type: 'HEDGE',
+          position: hedgeDirection,
+          price: currentPrice,
+          confidence: 0.8,
+          reason: hedgeReason,
+          timestamp: new Date()
+        });
+      }
     }
 
     // Check for peak hedge signal
@@ -433,24 +449,53 @@ export class HedgeStrategy {
    */
   private shouldHedgeAnchor(currentPrice: number, indicators1h: TechnicalIndicators): boolean {
     const anchorPosition = this.currentPositions.find(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
-    if (!anchorPosition) return false;
+    if (!anchorPosition) {
+      logger.info('🔍 No ANCHOR position found for hedge check');
+      return false;
+    }
 
     // Check if we already have an anchor hedge
     const hasAnchorHedge = this.currentPositions.some(pos => pos.type === 'ANCHOR_HEDGE' && pos.status === 'OPEN');
-    if (hasAnchorHedge) return false;
+    if (hasAnchorHedge) {
+      logger.info('🔍 ANCHOR hedge already exists, skipping hedge check');
+      return false;
+    }
 
     // Check hedge conditions based on anchor side
     if (anchorPosition.side === 'LONG') {
       // For LONG anchor: hedge when price drops below first support
       let isBelowFirstSupport = false;
+      let nearestSupportPrice = 0;
 
       if (this.useDynamicLevels) {
-        // Use dynamic support levels
-        const nearestSupport = this.dynamicLevels.getNearestSupport(currentPrice);
-        isBelowFirstSupport = nearestSupport ? currentPrice < nearestSupport.price : false;
+        // Use dynamic support levels - get strongest support for hedging
+        const supportLevels = this.dynamicLevels.getSupportLevels();
+        const strongestSupport = supportLevels.length > 0 ? 
+          supportLevels.reduce((strongest, level) => 
+            level.strength > strongest.strength ? level : strongest
+          ) : null;
+        
+        nearestSupportPrice = strongestSupport ? strongestSupport.price : 0;
+        isBelowFirstSupport = strongestSupport ? currentPrice < strongestSupport.price : false;
+        
+        logger.info('🔍 Dynamic hedge check for LONG ANCHOR', {
+          currentPrice: currentPrice,
+          strongestSupportPrice: nearestSupportPrice,
+          isBelowSupport: isBelowFirstSupport,
+          useDynamicLevels: true,
+          supportLevelsCount: supportLevels.length
+        });
       } else {
         // Use static support levels - price below first support
+        nearestSupportPrice = this.supportResistanceLevels.support1;
         isBelowFirstSupport = currentPrice < this.supportResistanceLevels.support1;
+        
+        logger.info('🔍 Static hedge check for LONG ANCHOR', {
+          currentPrice: currentPrice,
+          support1: this.supportResistanceLevels.support1,
+          isBelowSupport: isBelowFirstSupport,
+          useDynamicLevels: false
+        });
       }
 
       return isBelowFirstSupport;
@@ -459,12 +504,32 @@ export class HedgeStrategy {
       let isAboveFirstResistance = false;
 
       if (this.useDynamicLevels) {
-        // Use dynamic resistance levels
-        const nearestResistance = this.dynamicLevels.getNearestResistance(currentPrice);
-        isAboveFirstResistance = nearestResistance ? currentPrice > nearestResistance.price : false;
+        // Use dynamic resistance levels - get strongest resistance for hedging
+        const resistanceLevels = this.dynamicLevels.getResistanceLevels();
+        const strongestResistance = resistanceLevels.length > 0 ? 
+          resistanceLevels.reduce((strongest, level) => 
+            level.strength > strongest.strength ? level : strongest
+          ) : null;
+        
+        isAboveFirstResistance = strongestResistance ? currentPrice > strongestResistance.price : false;
+        
+        logger.info('🔍 Dynamic hedge check for SHORT ANCHOR', {
+          currentPrice: currentPrice,
+          strongestResistancePrice: strongestResistance ? strongestResistance.price : 0,
+          isAboveResistance: isAboveFirstResistance,
+          useDynamicLevels: true,
+          resistanceLevelsCount: resistanceLevels.length
+        });
       } else {
         // Use static resistance levels - price above first resistance
         isAboveFirstResistance = currentPrice > this.supportResistanceLevels.resistance1;
+        
+        logger.info('🔍 Static hedge check for SHORT ANCHOR', {
+          currentPrice: currentPrice,
+          resistance1: this.supportResistanceLevels.resistance1,
+          isAboveResistance: isAboveFirstResistance,
+          useDynamicLevels: false
+        });
       }
 
       return isAboveFirstResistance;
