@@ -72,6 +72,7 @@ pnpm run start
 - **🌍 Comprehensive Multi-Zone System**: 51 support/resistance levels across 6 price zones
 - **🎯 Intelligent Profit-Taking with Peak Detection**: Never miss profit opportunities with price peak/trough detection
 - **🔍 Price Peak Detection**: Revolutionary fallback system that catches peaks even when RSI/volume conditions aren't met
+- **💰 Dynamic Balance System**: Real-time balance detection and automatic position sizing adjustment
 - **🔄 Bidirectional Trading**: LONG and SHORT positions with opposite hedges
 - **🛡️ Guaranteed Profit System**: Mathematical proof of profit through hedging
 - **📊 Dynamic Level Learning**: 6-month historical data analysis for market adaptation
@@ -103,7 +104,7 @@ BINANCE_TESTNET=true  # Start with testnet!
 #### **Trading Configuration**
 ```env
 TRADING_PAIR=ADAUSDT
-BASE_BALANCE=1000  # Your account balance in USDT
+BASE_BALANCE=1000  # Initial balance reference (bot uses real-time balance)
 ```
 
 #### **Position Sizing (Optimized)**
@@ -417,6 +418,139 @@ Scenario C: Safety Exit
 - **Why Important**: Each position is independent, preventing cascading liquidations
 - **Automatic**: Bot sets ISOLATED mode on initialization
 - **Safety**: One position liquidation cannot affect others
+
+## 💰 **Dynamic Balance System (Revolutionary!)**
+
+### **Real-Time Balance Detection and Position Sizing**
+
+The bot now features a **dynamic balance system** that automatically detects your account balance changes and adjusts position sizing in real-time. No more restarts required when you add funds!
+
+#### **How Dynamic Balance Works**
+
+##### **Before (Static System)**
+```
+Bot starts with $200 balance → All positions use $200 for sizing
+You add $800 → Bot still uses $200 → Requires restart
+```
+
+##### **After (Dynamic System)**
+```
+Bot starts with $200 balance → Positions use $200 for sizing
+You add $800 → Bot detects $1000 balance → Next positions use $1000
+No restart required! ✅
+```
+
+#### **Dynamic Balance Features**
+
+##### **Real-Time Detection**
+- **Automatic**: Bot fetches balance from Binance every 30 seconds
+- **Cached**: Uses cached balance for performance (30-second cache)
+- **Fallback**: Falls back to config value if API fails
+- **Logging**: Shows balance changes and differences
+
+##### **Position Sizing Calculation**
+```typescript
+// Dynamic calculation using real-time balance
+const effectiveBalance = await this.getEffectiveBalance(); // Real-time balance
+const notionalValue = size * effectiveBalance * leverage;
+```
+
+##### **Balance Monitoring**
+```
+Effective balance for position sizing: {
+  totalBalance: "1000.00",
+  availableBalance: "800.00", 
+  effectiveBalance: "1000.00",
+  configBaseBalance: "200.00",
+  usingDynamicBalance: true
+}
+```
+
+#### **Balance Change Scenarios**
+
+##### **Scenario 1: Adding Funds**
+1. **Initial**: Bot running with $200 balance
+2. **Action**: You transfer $800 to your futures account
+3. **Detection**: Bot detects $1000 total balance (within 30 seconds)
+4. **Result**: Next positions use $1000 for sizing automatically
+
+##### **Scenario 2: Profit/Loss Changes**
+1. **Initial**: Bot running with $1000 balance
+2. **Action**: Positions make $50 profit
+3. **Detection**: Bot detects $1050 total balance
+4. **Result**: Next positions use $1050 for sizing
+
+##### **Scenario 3: API Failure**
+1. **Normal**: Bot uses real-time balance
+2. **API Issue**: Binance API temporarily unavailable
+3. **Fallback**: Bot uses config BASE_BALANCE value
+4. **Recovery**: Returns to real-time balance when API recovers
+
+#### **Dynamic Balance Logs**
+
+##### **Balance Update Logs**
+```
+Balance updated: {
+  total: "1000.00",
+  available: "800.00",
+  cacheAge: "0s (fresh)"
+}
+
+Effective balance for position sizing: {
+  totalBalance: "1000.00",
+  availableBalance: "800.00",
+  effectiveBalance: "1000.00", 
+  configBaseBalance: "200.00",
+  usingDynamicBalance: true
+}
+```
+
+##### **Position Sizing Logs**
+```
+Position sizing calculation (Dynamic Balance): {
+  side: "LONG",
+  size: 0.20,
+  leverage: 10,
+  effectiveBalance: "1000.00",
+  configBaseBalance: "200.00",
+  notionalValue: "2000.00",
+  balanceDifference: "800.00"
+}
+```
+
+#### **Configuration**
+
+##### **Environment Variables**
+```env
+# Initial balance reference (bot uses real-time balance)
+BASE_BALANCE=1000
+
+# Position sizing percentages (applied to real-time balance)
+ANCHOR_POSITION_SIZE=0.20      # 20% of current balance
+ANCHOR_HEDGE_SIZE=0.30         # 30% of current balance
+OPPORTUNITY_POSITION_SIZE=0.20 # 20% of current balance
+OPPORTUNITY_HEDGE_SIZE=0.30    # 30% of current balance
+```
+
+##### **Balance Cache Settings**
+- **Cache Duration**: 30 seconds (configurable)
+- **Auto-Refresh**: Automatic when cache expires
+- **Manual Refresh**: Available via API if needed
+- **Performance**: Reduces API calls while maintaining accuracy
+
+#### **Benefits of Dynamic Balance**
+
+##### **For Users**
+- **No Restarts**: Add funds without stopping the bot
+- **Automatic Scaling**: Position sizes grow with your account
+- **Real-Time**: Always uses current balance
+- **Transparent**: Clear logging of balance changes
+
+##### **For Performance**
+- **Efficient**: 30-second caching reduces API calls
+- **Reliable**: Fallback to config if API fails
+- **Fast**: Cached balance for quick position sizing
+- **Accurate**: Real-time balance for precise calculations
 
 ## 🎯 **Intelligent Profit-Taking System with Price Peak Detection**
 

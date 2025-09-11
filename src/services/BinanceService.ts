@@ -11,6 +11,9 @@ export class BinanceService {
   private client: any;
   private config: TradingConfig;
   private timeOffset: number = 0;
+  private cachedBalance: { total: number; available: number } | null = null;
+  private lastBalanceUpdate: number = 0;
+  private balanceCacheTimeout: number = 30000; // 30 seconds cache
 
   constructor(config: TradingConfig) {
     this.config = config;
@@ -184,24 +187,27 @@ export class BinanceService {
         leverage: leverage
       });
 
-      // Calculate position size in USDT
+      // Calculate position size in USDT using dynamic balance
       const currentPrice = await this.getCurrentPrice();
-      // For futures: Notional Value = size * baseBalance * leverage
-      const notionalValue = size * this.config.baseBalance * leverage;
+      const effectiveBalance = await this.getEffectiveBalance();
+      // For futures: Notional Value = size * effectiveBalance * leverage
+      const notionalValue = size * effectiveBalance * leverage;
       const positionSize = notionalValue / currentPrice;
 
       // Open the position - round to whole numbers for ADAUSDT (Binance requirement)
       const roundedQuantity = Math.round(positionSize);
       
-      logger.info('Position sizing calculation', {
+      logger.info('Position sizing calculation (Dynamic Balance)', {
         side,
         size,
         leverage,
-        baseBalance: this.config.baseBalance,
+        effectiveBalance: effectiveBalance.toFixed(2),
+        configBaseBalance: this.config.baseBalance.toFixed(2),
         currentPrice: currentPrice.toFixed(4),
         notionalValue: notionalValue.toFixed(2),
         positionSize: positionSize.toFixed(6),
-        roundedQuantity: roundedQuantity.toString()
+        roundedQuantity: roundedQuantity.toString(),
+        balanceDifference: (effectiveBalance - this.config.baseBalance).toFixed(2)
       });
       // In Hedge Mode, Binance automatically handles position sides
       // We just need to open regular LONG/SHORT positions
@@ -230,7 +236,7 @@ export class BinanceService {
         notionalValue, 
         positionSize, 
         leverage,
-        marginUsed: size * this.config.baseBalance
+        marginUsed: size * effectiveBalance
       });
       return position;
     } catch (error) {
@@ -293,21 +299,78 @@ export class BinanceService {
   }
 
   /**
-   * Get account balance
+   * Get account balance (with caching for performance)
    */
   async getAccountBalance(): Promise<{ total: number; available: number }> {
     try {
+      const now = Date.now();
+      
+      // Return cached balance if it's still fresh
+      if (this.cachedBalance && (now - this.lastBalanceUpdate) < this.balanceCacheTimeout) {
+        return this.cachedBalance;
+      }
+      
+      // Fetch fresh balance from Binance
       const account = await this.client.futuresAccountInfo();
       const balance = account.assets.find((asset: any) => asset.asset === 'USDT');
       
-      return {
+      const freshBalance = {
         total: parseFloat(balance.walletBalance),
         available: parseFloat(balance.availableBalance)
       };
+      
+      // Update cache
+      this.cachedBalance = freshBalance;
+      this.lastBalanceUpdate = now;
+      
+      logger.info('Balance updated', {
+        total: freshBalance.total.toFixed(2),
+        available: freshBalance.available.toFixed(2),
+        cacheAge: '0s (fresh)'
+      });
+      
+      return freshBalance;
     } catch (error) {
       logger.error('Failed to get account balance', error);
       throw error;
     }
+  }
+
+  /**
+   * Get current effective balance for position sizing
+   * Uses real-time balance instead of static config value
+   */
+  async getEffectiveBalance(): Promise<number> {
+    try {
+      const balance = await this.getAccountBalance();
+      
+      // Use the total wallet balance for position sizing
+      // This includes both available and used margin
+      const effectiveBalance = balance.total;
+      
+      logger.info('Effective balance for position sizing', {
+        totalBalance: balance.total.toFixed(2),
+        availableBalance: balance.available.toFixed(2),
+        effectiveBalance: effectiveBalance.toFixed(2),
+        configBaseBalance: this.config.baseBalance.toFixed(2),
+        usingDynamicBalance: true
+      });
+      
+      return effectiveBalance;
+    } catch (error) {
+      logger.error('Failed to get effective balance, falling back to config', error);
+      // Fallback to config value if API fails
+      return this.config.baseBalance;
+    }
+  }
+
+  /**
+   * Force refresh balance cache (useful when you know balance has changed)
+   */
+  async refreshBalance(): Promise<{ total: number; available: number }> {
+    this.cachedBalance = null;
+    this.lastBalanceUpdate = 0;
+    return await this.getAccountBalance();
   }
 
   /**
