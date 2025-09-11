@@ -572,7 +572,7 @@ export class HedgeStrategy {
         if ((isNearResistance || isAboveResistance) && (nearestResistance.importance === 'HIGH' || nearestResistance.importance === 'CRITICAL')) {
           // Additional confirmation: RSI overbought or volume decreasing
           const rsiOverbought = indicators1h.rsi > 70;
-          const volumeDecreasing = indicators1h.volumeRatio < 1.0;
+          const volumeDecreasing = indicators1h.volumeRatio < 0.1; // Match entry volume threshold
           
           if (rsiOverbought || volumeDecreasing) {
             logger.info('🎯 LONG Anchor Profit-Taking Signal', {
@@ -605,7 +605,7 @@ export class HedgeStrategy {
         if ((isNearSupport || isBelowSupport) && (nearestSupport.importance === 'HIGH' || nearestSupport.importance === 'CRITICAL')) {
           // Additional confirmation: RSI oversold or volume decreasing
           const rsiOversold = indicators1h.rsi < 30;
-          const volumeDecreasing = indicators1h.volumeRatio < 1.0;
+          const volumeDecreasing = indicators1h.volumeRatio < 0.1; // Match entry volume threshold
           
           if (rsiOversold || volumeDecreasing) {
             logger.info('🎯 SHORT Anchor Profit-Taking Signal', {
