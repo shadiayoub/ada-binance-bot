@@ -157,14 +157,14 @@ export class HedgeStrategy {
       });
     }
 
-    // Check for opportunity hedge signal
-    const opportunityPosition = this.currentPositions.find(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
-    if (opportunityPosition && this.shouldHedgeOpportunity(currentPrice, indicators1h)) {
-      // Determine hedge direction based on opportunity side
-      const hedgeDirection = opportunityPosition.side === 'LONG' ? 'SHORT' : 'LONG';
-      const hedgeReason = opportunityPosition.side === 'LONG'
-        ? 'Price below second support, opening opportunity hedge (SHORT)'
-        : 'Price above second resistance, opening opportunity hedge (LONG)';
+    // Check for peak hedge signal
+    const peakPosition = this.currentPositions.find(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
+    if (peakPosition && this.shouldHedgeOpportunity(currentPrice, indicators1h)) {
+      // Determine hedge direction based on peak side
+      const hedgeDirection = peakPosition.side === 'LONG' ? 'SHORT' : 'LONG';
+      const hedgeReason = peakPosition.side === 'LONG'
+        ? 'LONG Peak reversal failed, opening hedge protection (SHORT)'
+        : 'SHORT Peak reversal failed, opening hedge protection (LONG)';
       
       signals.push({
         type: 'HEDGE',
@@ -248,19 +248,19 @@ export class HedgeStrategy {
       }
     }
 
-    // Check for profit-taking signals on opportunity positions
-    const opportunityPositions = this.currentPositions.filter(pos => 
+    // Check for profit-taking signals on peak positions
+    const peakPositions = this.currentPositions.filter(pos => 
       pos.type === 'OPPORTUNITY' && pos.status === 'OPEN'
     );
 
-    for (const opportunityPosition of opportunityPositions) {
-      if (this.shouldTakeProfitOpportunity(opportunityPosition, currentPrice, indicators1h)) {
+    for (const peakPosition of peakPositions) {
+      if (this.shouldTakeProfitOpportunity(peakPosition, currentPrice, indicators1h)) {
         signals.push({
           type: 'EXIT',
-          position: opportunityPosition.side,
+          position: peakPosition.side,
           price: currentPrice,
           confidence: 0.8,
-          reason: 'Opportunity position reached profit-taking level',
+          reason: 'Peak position reached profit-taking level',
           timestamp: new Date()
         });
       }
@@ -270,7 +270,7 @@ export class HedgeStrategy {
   }
 
   /**
-   * Check for re-entry signals
+   * Check for re-entry signals (Peak Strategy)
    */
   private async checkReEntrySignals(
     currentPrice: number, 
@@ -279,24 +279,33 @@ export class HedgeStrategy {
   ): Promise<TradingSignal[]> {
     const signals: TradingSignal[] = [];
 
-    // Check if we should open opportunity position
-    const hasOpportunityPosition = this.currentPositions.some(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
-    if (!hasOpportunityPosition && this.shouldOpenOpportunity(currentPrice, indicators4h, indicators1h)) {
-      // Determine opportunity direction based on anchor side
+    // Check if we should open Peak reversal position
+    const hasPeakPosition = this.currentPositions.some(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
+    if (!hasPeakPosition && this.shouldOpenPeakReversal(currentPrice, indicators4h, indicators1h)) {
+      // Determine peak direction based on anchor side and market detection
       const anchorPosition = this.currentPositions.find(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
-      const opportunityDirection = anchorPosition?.side === 'LONG' ? 'LONG' : 'SHORT';
-      const opportunityReason = anchorPosition?.side === 'LONG'
-        ? 'Price at second support level, opening opportunity position (LONG)'
-        : 'Price at second resistance level, opening opportunity position (SHORT)';
       
-      signals.push({
-        type: 'RE_ENTRY',
-        position: opportunityDirection,
-        price: currentPrice,
-        confidence: 0.7,
-        reason: opportunityReason,
-        timestamp: new Date()
-      });
+      if (anchorPosition?.side === 'LONG') {
+        // LONG Anchor → SHORT Peak (market peaked)
+        signals.push({
+          type: 'RE_ENTRY',
+          position: 'SHORT',
+          price: currentPrice,
+          confidence: 0.8,
+          reason: 'Peak detected - opening SHORT reversal position to catch decline',
+          timestamp: new Date()
+        });
+      } else if (anchorPosition?.side === 'SHORT') {
+        // SHORT Anchor → LONG Peak (market troughed)
+        signals.push({
+          type: 'RE_ENTRY',
+          position: 'LONG',
+          price: currentPrice,
+          confidence: 0.8,
+          reason: 'Trough detected - opening LONG reversal position to catch rise',
+          timestamp: new Date()
+        });
+      }
     }
 
     return signals;
@@ -481,50 +490,48 @@ export class HedgeStrategy {
   }
 
   /**
-   * Check if we should hedge the opportunity position
+   * Check if we should hedge the Peak position
    */
   private shouldHedgeOpportunity(currentPrice: number, indicators1h: TechnicalIndicators): boolean {
-    const opportunityPosition = this.currentPositions.find(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
-    if (!opportunityPosition) return false;
+    const peakPosition = this.currentPositions.find(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
+    if (!peakPosition) return false;
 
-    // Check if we already have an opportunity hedge
-    const hasOpportunityHedge = this.currentPositions.some(pos => pos.type === 'OPPORTUNITY_HEDGE' && pos.status === 'OPEN');
-    if (hasOpportunityHedge) return false;
+    // Check if we already have a peak hedge
+    const hasPeakHedge = this.currentPositions.some(pos => pos.type === 'OPPORTUNITY_HEDGE' && pos.status === 'OPEN');
+    if (hasPeakHedge) return false;
 
-    // Check hedge conditions based on opportunity side
-    if (opportunityPosition.side === 'LONG') {
-      // For LONG opportunity: hedge when price drops below second support
-      let isBelowSecondSupport = false;
-
-      if (this.useDynamicLevels) {
-        // Use dynamic support levels
-        const supportLevels = this.dynamicLevels.getSupportLevels();
-        if (supportLevels.length >= 2 && supportLevels[1]) {
-          isBelowSecondSupport = currentPrice < supportLevels[1].price;
-        }
-      } else {
-        // Use static support levels - price below second support
-        isBelowSecondSupport = currentPrice < this.supportResistanceLevels.support2;
+    // Check hedge conditions based on peak side
+    if (peakPosition.side === 'LONG') {
+      // For LONG Peak: hedge when price drops below entry (reversal failed)
+      const priceBelowEntry = currentPrice < peakPosition.entryPrice;
+      const priceDecline = (peakPosition.entryPrice - currentPrice) / peakPosition.entryPrice >= 0.01; // 1% decline
+      
+      if (priceBelowEntry && priceDecline) {
+        logger.info('🛡️ LONG Peak Hedge Signal', {
+          peakEntry: peakPosition.entryPrice.toFixed(4),
+          currentPrice: currentPrice.toFixed(4),
+          decline: `${((peakPosition.entryPrice - currentPrice) / peakPosition.entryPrice * 100).toFixed(2)}%`,
+          reason: 'LONG Peak reversal failed - opening hedge protection'
+        });
+        return true;
       }
-
-      return isBelowSecondSupport;
     } else {
-      // For SHORT opportunity: hedge when price rises above second resistance
-      let isAboveSecondResistance = false;
-
-      if (this.useDynamicLevels) {
-        // Use dynamic resistance levels
-        const resistanceLevels = this.dynamicLevels.getResistanceLevels();
-        if (resistanceLevels.length >= 2 && resistanceLevels[1]) {
-          isAboveSecondResistance = currentPrice > resistanceLevels[1].price;
-        }
-      } else {
-        // Use static resistance levels - price above second resistance
-        isAboveSecondResistance = currentPrice > this.supportResistanceLevels.resistance2;
+      // For SHORT Peak: hedge when price rises above entry (reversal failed)
+      const priceAboveEntry = currentPrice > peakPosition.entryPrice;
+      const priceRise = (currentPrice - peakPosition.entryPrice) / peakPosition.entryPrice >= 0.01; // 1% rise
+      
+      if (priceAboveEntry && priceRise) {
+        logger.info('🛡️ SHORT Peak Hedge Signal', {
+          peakEntry: peakPosition.entryPrice.toFixed(4),
+          currentPrice: currentPrice.toFixed(4),
+          rise: `${((currentPrice - peakPosition.entryPrice) / peakPosition.entryPrice * 100).toFixed(2)}%`,
+          reason: 'SHORT Peak reversal failed - opening hedge protection'
+        });
+        return true;
       }
-
-      return isAboveSecondResistance;
     }
+
+    return false;
   }
 
   /**
@@ -656,11 +663,11 @@ export class HedgeStrategy {
   }
 
   /**
-   * Check if we should take profit on opportunity position using comprehensive levels
+   * Check if we should take profit on peak position using comprehensive levels
    */
-  private shouldTakeProfitOpportunity(opportunityPosition: Position, currentPrice: number, indicators1h: TechnicalIndicators): boolean {
-    const profitThreshold = 0.015; // Minimum 1.5% profit for opportunity positions
-    const currentProfit = this.calculateProfitPercentage(opportunityPosition, currentPrice);
+  private shouldTakeProfitOpportunity(peakPosition: Position, currentPrice: number, indicators1h: TechnicalIndicators): boolean {
+    const profitThreshold = 0.015; // Minimum 1.5% profit for peak positions
+    const currentProfit = this.calculateProfitPercentage(peakPosition, currentPrice);
     
     // Only consider profit-taking if we have meaningful profit
     if (currentProfit < profitThreshold) {
@@ -668,11 +675,11 @@ export class HedgeStrategy {
     }
 
     // 🎯 PRIORITY 1: Check if price has returned to original exit target
-    const originalTarget = this.getOriginalExitTarget(opportunityPosition);
+    const originalTarget = this.getOriginalExitTarget(peakPosition);
     if (originalTarget && this.isPriceAtTarget(currentPrice, originalTarget)) {
       logger.info('🎯 Target Return Exit: Price returned to original target', {
-        position: `OPPORTUNITY_${opportunityPosition.side}`,
-        entryPrice: opportunityPosition.entryPrice.toFixed(4),
+        position: `PEAK_${peakPosition.side}`,
+        entryPrice: peakPosition.entryPrice.toFixed(4),
         currentPrice: currentPrice.toFixed(4),
         originalTarget: originalTarget.toFixed(4),
         profit: `${currentProfit.toFixed(2)}%`,
@@ -684,8 +691,8 @@ export class HedgeStrategy {
     // Get comprehensive trading signals
     const signals = this.comprehensiveLevels.getTradingSignals(currentPrice);
     
-    if (opportunityPosition.side === 'LONG') {
-      // For LONG opportunity: Take profit at resistance levels
+    if (peakPosition.side === 'LONG') {
+      // For LONG peak: Take profit at resistance levels
       const nearestResistance = signals.nearestResistance;
       
       if (nearestResistance) {
@@ -694,7 +701,7 @@ export class HedgeStrategy {
         const isNearResistance = Math.abs(currentPrice - nearestResistance.price) / nearestResistance.price <= priceTolerance;
         const isAboveResistance = currentPrice >= nearestResistance.price;
         
-        // More aggressive profit-taking for opportunity positions
+        // More aggressive profit-taking for peak positions
         const isMediumImportance = nearestResistance.importance === 'MEDIUM' || 
                                  nearestResistance.importance === 'HIGH' || 
                                  nearestResistance.importance === 'CRITICAL';
@@ -704,12 +711,12 @@ export class HedgeStrategy {
         const volumeDecreasing = indicators1h.volumeRatio < 0.1; // Match entry volume threshold
         
         // Fallback: Price peak detection (price has peaked and started declining)
-        const pricePeakDetected = this.detectOpportunityPricePeak(opportunityPosition, currentPrice);
+        const pricePeakDetected = this.detectOpportunityPricePeak(peakPosition, currentPrice);
         
         if ((isNearResistance || isAboveResistance) && isMediumImportance && (rsiOverbought || volumeDecreasing || pricePeakDetected)) {
-          logger.info('🎯 LONG Opportunity Profit-Taking Signal', {
-            position: 'OPPORTUNITY_LONG',
-            entryPrice: opportunityPosition.entryPrice.toFixed(4),
+          logger.info('🎯 LONG Peak Profit-Taking Signal', {
+            position: 'PEAK_LONG',
+            entryPrice: peakPosition.entryPrice.toFixed(4),
             currentPrice: currentPrice.toFixed(4),
             profit: `${currentProfit.toFixed(2)}%`,
             resistanceLevel: nearestResistance.price.toFixed(4),
@@ -725,8 +732,8 @@ export class HedgeStrategy {
           return true;
         }
       }
-    } else if (opportunityPosition.side === 'SHORT') {
-      // For SHORT opportunity: Take profit at support levels
+    } else if (peakPosition.side === 'SHORT') {
+      // For SHORT peak: Take profit at support levels
       const nearestSupport = signals.nearestSupport;
       
       if (nearestSupport) {
@@ -735,7 +742,7 @@ export class HedgeStrategy {
         const isNearSupport = Math.abs(currentPrice - nearestSupport.price) / nearestSupport.price <= priceTolerance;
         const isBelowSupport = currentPrice <= nearestSupport.price;
         
-        // More aggressive profit-taking for opportunity positions
+        // More aggressive profit-taking for peak positions
         const isMediumImportance = nearestSupport.importance === 'MEDIUM' || 
                                  nearestSupport.importance === 'HIGH' || 
                                  nearestSupport.importance === 'CRITICAL';
@@ -745,12 +752,12 @@ export class HedgeStrategy {
         const volumeDecreasing = indicators1h.volumeRatio < 0.1; // Match entry volume threshold
         
         // Fallback: Price trough detection (price has bottomed and started rising)
-        const priceTroughDetected = this.detectOpportunityPriceTrough(opportunityPosition, currentPrice);
+        const priceTroughDetected = this.detectOpportunityPriceTrough(peakPosition, currentPrice);
         
         if ((isNearSupport || isBelowSupport) && isMediumImportance && (rsiOversold || volumeDecreasing || priceTroughDetected)) {
-          logger.info('🎯 SHORT Opportunity Profit-Taking Signal', {
-            position: 'OPPORTUNITY_SHORT',
-            entryPrice: opportunityPosition.entryPrice.toFixed(4),
+          logger.info('🎯 SHORT Peak Profit-Taking Signal', {
+            position: 'PEAK_SHORT',
+            entryPrice: peakPosition.entryPrice.toFixed(4),
             currentPrice: currentPrice.toFixed(4),
             profit: `${currentProfit.toFixed(2)}%`,
             supportLevel: nearestSupport.price.toFixed(4),
@@ -881,36 +888,62 @@ export class HedgeStrategy {
   }
 
   /**
-   * Check if we should open an opportunity position
+   * Check if we should open a Peak reversal position
+   * 🛡️ SAFETY RULE: Only opens when existing position is profitable
+   * 🎯 BIDIRECTIONAL: Detects both peaks (SHORT) and troughs (LONG)
    */
-  private shouldOpenOpportunity(
+  private shouldOpenPeakReversal(
     currentPrice: number, 
     indicators4h: TechnicalIndicators, 
     indicators1h: TechnicalIndicators
   ): boolean {
-    // Get anchor position to determine opportunity direction
+    // Get anchor position to determine peak direction
     const anchorPosition = this.currentPositions.find(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
     if (!anchorPosition) return false;
 
-    // Check volume confirmation
-    const hasVolumeConfirmation = this.technicalAnalysis.isVolumeAboveThreshold(indicators1h.volumeRatio);
-
-    // Check RSI is in valid range
-    const rsiValid = this.technicalAnalysis.isRSIInValidRange(indicators1h.rsi);
-
-    if (anchorPosition.side === 'LONG') {
-      // For LONG anchor: opportunity at second support level
-      const isNearSecondSupport = this.technicalAnalysis.isNearLevel(currentPrice, [
-        this.supportResistanceLevels.support2
-      ]);
-      return isNearSecondSupport && hasVolumeConfirmation && rsiValid;
-    } else {
-      // For SHORT anchor: opportunity at second resistance level
-      const isNearSecondResistance = this.technicalAnalysis.isNearLevel(currentPrice, [
-        this.supportResistanceLevels.resistance2
-      ]);
-      return isNearSecondResistance && hasVolumeConfirmation && rsiValid;
+    // 🛡️ SAFETY RULE: Only open Peak if existing position is profitable
+    const currentProfit = this.calculateProfitPercentage(anchorPosition, currentPrice);
+    if (currentProfit <= 0) {
+      logger.info('🚫 Peak Strategy Blocked: Existing position not profitable', {
+        position: anchorPosition.side,
+        entryPrice: anchorPosition.entryPrice.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        currentProfit: `${currentProfit.toFixed(2)}%`,
+        reason: 'Peak positions only open when existing position is in profit'
+      });
+      return false;
     }
+
+    // Check if we already have a peak position
+    const hasPeakPosition = this.currentPositions.some(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
+    if (hasPeakPosition) return false;
+
+    // 🎯 BIDIRECTIONAL PEAK DETECTION
+    if (anchorPosition.side === 'LONG') {
+      // LONG Anchor → Look for SHORT Peak opportunity (market peaked)
+      if (this.detectMarketPeak(currentPrice, indicators1h)) {
+        logger.info('🎯 SHORT Peak Reversal Signal', {
+          anchorPosition: 'LONG',
+          anchorProfit: `${currentProfit.toFixed(2)}%`,
+          peakPrice: currentPrice.toFixed(4),
+          reason: 'Market peaked after LONG profit - opening SHORT reversal'
+        });
+        return true;
+      }
+    } else if (anchorPosition.side === 'SHORT') {
+      // SHORT Anchor → Look for LONG Peak opportunity (market troughed)
+      if (this.detectMarketTrough(currentPrice, indicators1h)) {
+        logger.info('🎯 LONG Peak Reversal Signal', {
+          anchorPosition: 'SHORT',
+          anchorProfit: `${currentProfit.toFixed(2)}%`,
+          troughPrice: currentPrice.toFixed(4),
+          reason: 'Market troughed after SHORT profit - opening LONG reversal'
+        });
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -1293,5 +1326,161 @@ export class HedgeStrategy {
   private isPriceAtTarget(currentPrice: number, targetPrice: number): boolean {
     const priceTolerance = 0.005; // 0.5% tolerance
     return Math.abs(currentPrice - targetPrice) / targetPrice <= priceTolerance;
+  }
+
+  /**
+   * Detect if market has peaked and is reversing (for SHORT Peak positions)
+   * This detects when price has reached a peak and started declining
+   */
+  private detectMarketPeak(currentPrice: number, indicators1h: TechnicalIndicators): boolean {
+    // Store market price history for peak detection
+    if (!this.priceHistory) {
+      this.priceHistory = new Map();
+    }
+    
+    const marketKey = 'market_peak_detection';
+    if (!this.priceHistory.has(marketKey)) {
+      this.priceHistory.set(marketKey, []);
+    }
+    
+    const history = this.priceHistory.get(marketKey)!;
+    history.push({ price: currentPrice, timestamp: Date.now() });
+    
+    // Keep only last 10 price points (about 10 minutes of data)
+    if (history.length > 10) {
+      history.shift();
+    }
+    
+    // Need at least 5 data points to detect a peak
+    if (history.length < 5) {
+      return false;
+    }
+    
+    // Check if we have a peak pattern: price went up, peaked, then started declining
+    const recent = history.slice(-5);
+    const [first, second, third, fourth, fifth] = recent;
+    
+    // Ensure we have all five data points
+    if (!first || !second || !third || !fourth || !fifth) {
+      return false;
+    }
+    
+    // Peak detection: price went up, peaked, then started declining
+    const isPeak = second.price > first.price && 
+                   third.price > second.price && 
+                   fourth.price < third.price && 
+                   fifth.price < fourth.price;
+    
+    // Additional confirmation: RSI overbought and declining
+    const rsiOverbought = indicators1h.rsi > 70;
+    const rsiDeclining = this.isRSIDeclining(indicators1h);
+    
+    // Volume confirmation: volume decreasing (momentum shift)
+    const volumeDecreasing = indicators1h.volumeRatio < 0.8;
+    
+    // Minimum peak decline: at least 0.3% decline from peak
+    const peakPrice = third.price;
+    const peakDecline = (peakPrice - currentPrice) / peakPrice >= 0.003; // 0.3% decline
+    
+    if (isPeak && rsiOverbought && rsiDeclining && volumeDecreasing && peakDecline) {
+      logger.info('🔍 Market Peak Detected - SHORT Peak Opportunity', {
+        peakPrice: peakPrice.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        decline: `${((peakPrice - currentPrice) / peakPrice * 100).toFixed(2)}%`,
+        rsi: indicators1h.rsi.toFixed(1),
+        volumeRatio: indicators1h.volumeRatio.toFixed(2),
+        reason: 'Market peaked and declining - SHORT reversal opportunity'
+      });
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Detect if market has bottomed and is reversing (for LONG Peak positions)
+   * This detects when price has reached a trough and started rising
+   */
+  private detectMarketTrough(currentPrice: number, indicators1h: TechnicalIndicators): boolean {
+    // Store market price history for trough detection
+    if (!this.priceHistory) {
+      this.priceHistory = new Map();
+    }
+    
+    const marketKey = 'market_trough_detection';
+    if (!this.priceHistory.has(marketKey)) {
+      this.priceHistory.set(marketKey, []);
+    }
+    
+    const history = this.priceHistory.get(marketKey)!;
+    history.push({ price: currentPrice, timestamp: Date.now() });
+    
+    // Keep only last 10 price points (about 10 minutes of data)
+    if (history.length > 10) {
+      history.shift();
+    }
+    
+    // Need at least 5 data points to detect a trough
+    if (history.length < 5) {
+      return false;
+    }
+    
+    // Check if we have a trough pattern: price went down, bottomed, then started rising
+    const recent = history.slice(-5);
+    const [first, second, third, fourth, fifth] = recent;
+    
+    // Ensure we have all five data points
+    if (!first || !second || !third || !fourth || !fifth) {
+      return false;
+    }
+    
+    // Trough detection: price went down, bottomed, then started rising
+    const isTrough = second.price < first.price && 
+                     third.price < second.price && 
+                     fourth.price > third.price && 
+                     fifth.price > fourth.price;
+    
+    // Additional confirmation: RSI oversold and rising
+    const rsiOversold = indicators1h.rsi < 30;
+    const rsiRising = this.isRSIRising(indicators1h);
+    
+    // Volume confirmation: volume increasing (momentum shift)
+    const volumeIncreasing = indicators1h.volumeRatio > 1.2;
+    
+    // Minimum trough rise: at least 0.3% rise from trough
+    const troughPrice = third.price;
+    const troughRise = (currentPrice - troughPrice) / troughPrice >= 0.003; // 0.3% rise
+    
+    if (isTrough && rsiOversold && rsiRising && volumeIncreasing && troughRise) {
+      logger.info('🔍 Market Trough Detected - LONG Peak Opportunity', {
+        troughPrice: troughPrice.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        rise: `${((currentPrice - troughPrice) / troughPrice * 100).toFixed(2)}%`,
+        rsi: indicators1h.rsi.toFixed(1),
+        volumeRatio: indicators1h.volumeRatio.toFixed(2),
+        reason: 'Market bottomed and rising - LONG reversal opportunity'
+      });
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Check if RSI is declining (for peak detection)
+   */
+  private isRSIDeclining(indicators1h: TechnicalIndicators): boolean {
+    // Simple RSI declining check - in real implementation, you'd track RSI history
+    // For now, we'll use the current RSI value and assume it's declining if overbought
+    return indicators1h.rsi > 70; // RSI overbought suggests potential decline
+  }
+
+  /**
+   * Check if RSI is rising (for trough detection)
+   */
+  private isRSIRising(indicators1h: TechnicalIndicators): boolean {
+    // Simple RSI rising check - in real implementation, you'd track RSI history
+    // For now, we'll use the current RSI value and assume it's rising if oversold
+    return indicators1h.rsi < 30; // RSI oversold suggests potential rise
   }
 }
