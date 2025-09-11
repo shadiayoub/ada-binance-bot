@@ -229,6 +229,20 @@ async executeScalpStrategy(marketData4h: MarketData[], marketData1h: MarketData[
       return false;
     }
 
+    // 🎯 PRIORITY 1: Check if price has returned to original exit target
+    const originalTarget = this.getOriginalExitTarget(scalpPosition);
+    if (originalTarget && this.isPriceAtTarget(currentPrice, originalTarget)) {
+      logger.info('🎯 Target Return Exit: Price returned to original target', {
+        position: `SCALP_${scalpPosition.side}`,
+        entryPrice: scalpPosition.entryPrice.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        originalTarget: originalTarget.toFixed(4),
+        profit: `${scalpProfit.toFixed(2)}%`,
+        reason: 'Price returned to original exit target - capturing achieved profit'
+      });
+      return true;
+    }
+
     // Get comprehensive trading signals for scalp levels
     const signals = this.comprehensiveLevels.getTradingSignals(currentPrice);
     
@@ -718,5 +732,32 @@ async executeScalpStrategy(marketData4h: MarketData[], marketData1h: MarketData[
     }
     
     return false;
+  }
+
+  /**
+   * Get the original exit target for a scalp position based on its entry signal
+   * This is the price level that was identified as the initial profit target
+   */
+  private getOriginalExitTarget(position: Position): number | null {
+    // For scalp positions, the original target is typically the next resistance/support level
+    // We'll use the comprehensive levels system to determine this
+    
+    if (position.side === 'LONG') {
+      // For LONG scalp, target is the next resistance level above entry
+      const signals = this.comprehensiveLevels.getTradingSignals(position.entryPrice);
+      return signals.nearestResistance?.price || null;
+    } else {
+      // For SHORT scalp, target is the next support level below entry
+      const signals = this.comprehensiveLevels.getTradingSignals(position.entryPrice);
+      return signals.nearestSupport?.price || null;
+    }
+  }
+
+  /**
+   * Check if current price is at or near the original exit target
+   */
+  private isPriceAtTarget(currentPrice: number, targetPrice: number): boolean {
+    const priceTolerance = 0.003; // 0.3% tolerance for scalp precision
+    return Math.abs(currentPrice - targetPrice) / targetPrice <= priceTolerance;
   }
 }

@@ -557,6 +557,20 @@ export class HedgeStrategy {
       return false;
     }
 
+    // 🎯 PRIORITY 1: Check if price has returned to original exit target
+    const originalTarget = this.getOriginalExitTarget(anchorPosition);
+    if (originalTarget && this.isPriceAtTarget(currentPrice, originalTarget)) {
+      logger.info('🎯 Target Return Exit: Price returned to original target', {
+        position: `ANCHOR_${anchorPosition.side}`,
+        entryPrice: anchorPosition.entryPrice.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        originalTarget: originalTarget.toFixed(4),
+        profit: `${currentProfit.toFixed(2)}%`,
+        reason: 'Price returned to original exit target - capturing achieved profit'
+      });
+      return true;
+    }
+
     // Get comprehensive trading signals
     const signals = this.comprehensiveLevels.getTradingSignals(currentPrice);
     
@@ -651,6 +665,20 @@ export class HedgeStrategy {
     // Only consider profit-taking if we have meaningful profit
     if (currentProfit < profitThreshold) {
       return false;
+    }
+
+    // 🎯 PRIORITY 1: Check if price has returned to original exit target
+    const originalTarget = this.getOriginalExitTarget(opportunityPosition);
+    if (originalTarget && this.isPriceAtTarget(currentPrice, originalTarget)) {
+      logger.info('🎯 Target Return Exit: Price returned to original target', {
+        position: `OPPORTUNITY_${opportunityPosition.side}`,
+        entryPrice: opportunityPosition.entryPrice.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        originalTarget: originalTarget.toFixed(4),
+        profit: `${currentProfit.toFixed(2)}%`,
+        reason: 'Price returned to original exit target - capturing achieved profit'
+      });
+      return true;
     }
 
     // Get comprehensive trading signals
@@ -1222,5 +1250,48 @@ export class HedgeStrategy {
     }
     
     return false;
+  }
+
+  /**
+   * Get the original exit target for a position based on its entry signal
+   * This is the price level that was identified as the initial profit target
+   */
+  private getOriginalExitTarget(position: Position): number | null {
+    // For anchor positions, the original target is typically the next resistance/support level
+    // We'll use the comprehensive levels system to determine this
+    
+    if (position.type === 'ANCHOR') {
+      if (position.side === 'LONG') {
+        // For LONG anchor, target is the next resistance level above entry
+        const signals = this.comprehensiveLevels.getTradingSignals(position.entryPrice);
+        return signals.nearestResistance?.price || null;
+      } else {
+        // For SHORT anchor, target is the next support level below entry
+        const signals = this.comprehensiveLevels.getTradingSignals(position.entryPrice);
+        return signals.nearestSupport?.price || null;
+      }
+    }
+    
+    if (position.type === 'OPPORTUNITY') {
+      if (position.side === 'LONG') {
+        // For LONG opportunity, target is the next resistance level above entry
+        const signals = this.comprehensiveLevels.getTradingSignals(position.entryPrice);
+        return signals.nearestResistance?.price || null;
+      } else {
+        // For SHORT opportunity, target is the next support level below entry
+        const signals = this.comprehensiveLevels.getTradingSignals(position.entryPrice);
+        return signals.nearestSupport?.price || null;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Check if current price is at or near the original exit target
+   */
+  private isPriceAtTarget(currentPrice: number, targetPrice: number): boolean {
+    const priceTolerance = 0.005; // 0.5% tolerance
+    return Math.abs(currentPrice - targetPrice) / targetPrice <= priceTolerance;
   }
 }
