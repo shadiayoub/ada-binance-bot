@@ -81,7 +81,7 @@ export class ScalpStrategy {
   }
 
   /**
-   * Check for scalp entry opportunities
+   * Check for scalp entry opportunities (BIDIRECTIONAL!)
    */
   private async checkScalpEntry(
     currentPrice: number, 
@@ -95,61 +95,101 @@ export class ScalpStrategy {
       return null;
     }
 
-    // Check for support level entry (LONG scalp) using 15m levels
-    const supportLevels = this.dynamicLevels.getSupportLevels();
-    const nearestSupport = supportLevels
-      .filter(level => level.price < currentPrice)
-      .sort((a, b) => b.price - a.price)[0];
-
-    if (nearestSupport) {
-      const priceTolerance = 0.005; // 0.5% tolerance for 15m levels - increased from 0.1% for more opportunities
-      const isNearSupport = Math.abs(currentPrice - nearestSupport.price) / nearestSupport.price <= priceTolerance;
-      
-      if (isNearSupport) {
-        // Check volume confirmation (use 15m for faster response)
-        const hasVolumeConfirmation = this.technicalAnalysis.isVolumeAboveThreshold(indicators15m.volumeRatio);
-        
-        // Check RSI is not oversold (use 15m for faster response)
-        const rsiValid = this.technicalAnalysis.isRSIInValidRange(indicators15m.rsi);
-        
-        // Check trend alignment (allow all trends for hedged strategy)
-        const trendAligned = true; // Allow all trends since we're hedged - we profit either way
-
-        // Debug logging for volume analysis
-        logger.info('🔍 Volume Analysis for 15m Scalp Entry', {
-          currentPrice: currentPrice.toFixed(4),
-          supportLevel: nearestSupport.price.toFixed(4),
-          volumeRatio: indicators15m.volumeRatio.toFixed(2),
-          volumeThreshold: 0.1, // Current volume multiplier setting
-          hasVolumeConfirmation,
-          rsi: indicators15m.rsi.toFixed(1),
-          rsiValid,
-          isNearSupport
-        });
-
-        if (hasVolumeConfirmation && rsiValid && trendAligned) {
-          logger.info('🎯 15m Scalp Entry Signal', {
-            currentPrice: currentPrice.toFixed(4),
-            supportLevel: nearestSupport.price.toFixed(4),
-            priceTolerance: `${(priceTolerance * 100).toFixed(2)}%`,
-            volumeRatio: indicators15m.volumeRatio.toFixed(2),
-            rsi: indicators15m.rsi.toFixed(1),
-            trend: indicators4h.trend
-          });
-
-          return {
-            type: 'ENTRY',
-            position: 'LONG',
-            price: currentPrice,
-            confidence: this.calculateConfidence(indicators4h, indicators15m),
-            reason: '15m scalp entry at support level with volume confirmation',
-            timestamp: new Date()
-          };
-        }
-      }
+    // Use comprehensive levels system for consistent entry signals
+    const signals = this.comprehensiveLevels.getTradingSignals(currentPrice);
+    
+    // Check for LONG scalp entry (at support levels)
+    if (signals.longEntry && this.isValidScalpEntry(signals.longEntry, 'LONG', currentPrice, indicators15m)) {
+      return this.createScalpSignal('LONG', signals.longEntry, currentPrice, indicators4h, indicators15m);
+    }
+    
+    // Check for SHORT scalp entry (at resistance levels)
+    if (signals.shortEntry && this.isValidScalpEntry(signals.shortEntry, 'SHORT', currentPrice, indicators15m)) {
+      return this.createScalpSignal('SHORT', signals.shortEntry, currentPrice, indicators4h, indicators15m);
     }
 
     return null;
+  }
+
+  /**
+   * Validate scalp entry conditions (BIDIRECTIONAL!)
+   */
+  private isValidScalpEntry(
+    levelData: any, 
+    direction: 'LONG' | 'SHORT', 
+    currentPrice: number, 
+    indicators15m: TechnicalIndicators
+  ): boolean {
+    const priceTolerance = 0.005; // 0.5% tolerance for 15m scalp entries
+    
+    // Check if we're near the level
+    const isNearLevel = Math.abs(currentPrice - levelData.price) / levelData.price <= priceTolerance;
+    const isAtLevel = direction === 'LONG' ? 
+      currentPrice >= levelData.price : 
+      currentPrice <= levelData.price;
+    
+    // Check volume confirmation (use 15m for faster response)
+    const hasVolumeConfirmation = this.technicalAnalysis.isVolumeAboveThreshold(indicators15m.volumeRatio);
+    
+    // Check RSI is in valid range (use 15m for faster response)
+    const rsiValid = this.technicalAnalysis.isRSIInValidRange(indicators15m.rsi);
+    
+    // Check trend alignment (allow all trends for hedged strategy)
+    const trendAligned = true; // Allow all trends since we're hedged - we profit either way
+
+    // Debug logging for volume analysis
+    logger.info(`🔍 Volume Analysis for 15m ${direction} Scalp Entry`, {
+      currentPrice: currentPrice.toFixed(4),
+      levelPrice: levelData.price.toFixed(4),
+      levelType: direction === 'LONG' ? 'Support' : 'Resistance',
+      levelDescription: levelData.description,
+      levelImportance: levelData.importance,
+      volumeRatio: indicators15m.volumeRatio.toFixed(2),
+      volumeThreshold: 0.1, // Current volume multiplier setting
+      hasVolumeConfirmation,
+      rsi: indicators15m.rsi.toFixed(1),
+      rsiValid,
+      isNearLevel,
+      isAtLevel,
+      priceTolerance: `${(priceTolerance * 100).toFixed(2)}%`
+    });
+
+    return isNearLevel && hasVolumeConfirmation && rsiValid && trendAligned;
+  }
+
+  /**
+   * Create scalp trading signal (BIDIRECTIONAL!)
+   */
+  private createScalpSignal(
+    direction: 'LONG' | 'SHORT',
+    levelData: any,
+    currentPrice: number,
+    indicators4h: TechnicalIndicators,
+    indicators15m: TechnicalIndicators
+  ): TradingSignal {
+    const levelType = direction === 'LONG' ? 'Support' : 'Resistance';
+    
+    logger.info(`🎯 15m ${direction} Scalp Entry Signal`, {
+      currentPrice: currentPrice.toFixed(4),
+      levelPrice: levelData.price.toFixed(4),
+      levelType,
+      levelDescription: levelData.description,
+      levelImportance: levelData.importance,
+      priceTolerance: '0.5%',
+      volumeRatio: indicators15m.volumeRatio.toFixed(2),
+      rsi: indicators15m.rsi.toFixed(1),
+      trend: indicators4h.trend,
+      confidence: this.calculateConfidence(indicators4h, indicators15m)
+    });
+
+    return {
+      type: 'ENTRY',
+      position: direction,
+      price: currentPrice,
+      confidence: this.calculateConfidence(indicators4h, indicators15m),
+      reason: `15m ${direction.toLowerCase()} scalp entry at ${levelType.toLowerCase()} level with volume confirmation`,
+      timestamp: new Date()
+    };
   }
 
   /**
