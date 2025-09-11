@@ -70,14 +70,15 @@ pnpm run start
 
 ### **Revolutionary Trading Capabilities**
 - **🌍 Comprehensive Multi-Zone System**: 51 support/resistance levels across 6 price zones
-- **🎯 Intelligent Profit-Taking**: Automatic exits at optimal levels with technical confirmation
+- **🎯 Intelligent Profit-Taking with Peak Detection**: Never miss profit opportunities with price peak/trough detection
+- **🔍 Price Peak Detection**: Revolutionary fallback system that catches peaks even when RSI/volume conditions aren't met
 - **🔄 Bidirectional Trading**: LONG and SHORT positions with opposite hedges
 - **🛡️ Guaranteed Profit System**: Mathematical proof of profit through hedging
 - **📊 Dynamic Level Learning**: 6-month historical data analysis for market adaptation
 - **⚡ Real-time Monitoring**: Comprehensive logging and performance tracking
 - **🎮 Zone-Aware Trading**: Automatic adaptation to different market conditions
 - **🔒 ISOLATED Margin Mode**: Independent position risk management
-- **🚀 High-Frequency Scalping**: 15-minute interval trading with hedged backup system
+- **🚀 High-Frequency Scalping**: 15-minute interval trading with hedged backup system and peak detection
 - **🎯 Multi-Timeframe Analysis**: Combined 4H, 1H, and 15m data for comprehensive market view
 
 ### **Market Coverage**
@@ -417,16 +418,17 @@ Scenario C: Safety Exit
 - **Automatic**: Bot sets ISOLATED mode on initialization
 - **Safety**: One position liquidation cannot affect others
 
-## 🎯 **Intelligent Profit-Taking System**
+## 🎯 **Intelligent Profit-Taking System with Price Peak Detection**
 
 ### **Revolutionary Profit-Taking Logic**
 
-The bot now includes **intelligent profit-taking** that automatically exits winning positions at optimal levels using the comprehensive 51-level system:
+The bot now includes **intelligent profit-taking** with **price peak detection** that automatically exits winning positions at optimal levels using the comprehensive 51-level system:
 
 #### **Anchor Position Profit-Taking**
 - **Minimum Profit**: 2% required before considering exit
 - **Level Requirements**: Must hit HIGH or CRITICAL importance levels
-- **Technical Confirmation**: RSI overbought/oversold OR volume < 0.1 (consistent with entry)
+- **Primary Confirmation**: RSI overbought/oversold OR volume < 0.1 (consistent with entry)
+- **Fallback Protection**: Price peak/trough detection (never miss opportunities!)
 - **Price Tolerance**: 0.5% around resistance/support levels
 
 **Example**: LONG anchor at $0.86, price moves to $0.89 (3.49% profit)
@@ -436,21 +438,42 @@ The bot now includes **intelligent profit-taking** that automatically exits winn
 - ✅ **Volume 0.05** (< 0.1 threshold, consistent with entry)
 - **Result**: Bot takes profit at optimal level!
 
+**Critical Scenario**: Price hits $0.8975 but RSI = 65 (not overbought)
+- ✅ **Above 2% threshold**
+- ✅ **Near HIGH resistance level** ($0.8922)
+- ❌ **RSI 65** (not overbought)
+- ❌ **Volume 0.15** (above threshold)
+- ✅ **Price Peak Detected**: Price peaked at $0.8975, now declining 0.3%
+- **Result**: Bot exits with profit using peak detection! 🎯
+
 #### **Opportunity Position Profit-Taking**
 - **Minimum Profit**: 1.5% required (more aggressive)
 - **Level Requirements**: Must hit MEDIUM, HIGH, or CRITICAL importance levels
-- **Technical Confirmation**: RSI overbought/oversold OR volume < 0.1 (consistent with entry)
+- **Primary Confirmation**: RSI overbought/oversold OR volume < 0.1 (consistent with entry)
+- **Fallback Protection**: Price peak/trough detection (never miss opportunities!)
 - **Price Tolerance**: 0.5% around resistance/support levels
 
-#### **Profit-Taking Logic Flow**
+#### **Scalp Position Profit-Taking (NEW!)**
+- **Minimum Profit**: 0.27% required (scalp-specific target)
+- **Level Requirements**: Must hit support/resistance levels
+- **Primary Confirmation**: RSI overbought/oversold OR volume < 0.1 (consistent with entry)
+- **Fallback Protection**: Price peak/trough detection (more sensitive for scalp)
+- **Price Tolerance**: 0.3% around levels (more precise for scalp)
+- **Response Time**: 2 minutes of price history (faster than anchors)
+
+#### **Profit-Taking Logic Flow with Peak Detection**
 ```
 Position Opens → Price Moves in Favor → Minimum Profit Reached
     ↓
 Bot Checks Comprehensive Levels → Finds Relevant Resistance/Support
     ↓
-Technical Confirmation → RSI + Volume Analysis
+Primary Confirmation → RSI + Volume Analysis
     ↓
-Take Profit at Optimal Level → Lock in Gains
+┌─ RSI/Volume Conditions Met → Take Profit ✅
+└─ RSI/Volume Conditions NOT Met → Check Price Peak/Trough
+    ↓
+Price Peak/Trough Detected → Take Profit (Fallback) ✅
+Price Still Rising/Falling → Continue Monitoring
 ```
 
 #### **Real-World Example**
@@ -459,6 +482,64 @@ Take Profit at Optimal Level → Lock in Gains
 - **2% Threshold**: $0.8772 (minimum $20 profit)
 - **At $0.8900**: 3.49% profit = $34.90 on $1,000 position
 - **Bot Action**: Takes profit at resistance level with RSI confirmation
+
+### **🔍 Price Peak Detection System (Revolutionary!)**
+
+#### **The Problem It Solves**
+**Before**: Price hits target but RSI/volume conditions aren't met → Bot misses profit opportunity → Price drops → Lost profit!
+
+**After**: Price hits target → Peak detection triggers → Bot exits with profit → Never miss opportunities!
+
+#### **How Peak Detection Works**
+
+##### **For LONG Positions (Peak Detection)**
+```
+Price History: $0.8950 → $0.8975 → $0.8960
+Pattern: Price went up, then started declining
+Detection: Second price is highest, third is lower
+Confirmation: Current price 0.3% below peak (anchors) / 0.2% below peak (scalp)
+Result: Exit position with profit!
+```
+
+##### **For SHORT Positions (Trough Detection)**
+```
+Price History: $0.8600 → $0.8580 → $0.8590
+Pattern: Price went down, then started rising
+Detection: Second price is lowest, third is higher
+Confirmation: Current price 0.3% above trough (anchors) / 0.2% above trough (scalp)
+Result: Exit position with profit!
+```
+
+#### **Peak Detection Settings**
+
+##### **Anchor Positions**
+- **Price History**: 10 data points (5 minutes)
+- **Peak Decline**: 0.3% minimum decline to confirm
+- **Response Time**: Within 1-2 price updates
+- **Memory**: Efficient, only keeps recent data
+
+##### **Scalp Positions**
+- **Price History**: 8 data points (2 minutes)
+- **Peak Decline**: 0.2% minimum decline (more sensitive)
+- **Response Time**: Faster than anchors
+- **Memory**: Optimized for high-frequency trading
+
+#### **Peak Detection Logs**
+```
+🔍 Price Peak Detected: {
+  position: "LONG",
+  entryPrice: "0.8600",
+  peakPrice: "0.8975",
+  currentPrice: "0.8960",
+  decline: "0.17%",
+  reason: "Price peaked and started declining"
+}
+
+🎯 LONG Anchor Profit-Taking Signal: {
+  exitReason: "Price peak detected",
+  pricePeakDetected: true
+}
+```
 
 ### **Mathematical Guarantee**
 
@@ -573,7 +654,7 @@ Liquidation-based exit triggered: {
 }
 ```
 
-#### **Intelligent Profit-Taking Logs (NEW!)**
+#### **Intelligent Profit-Taking Logs with Peak Detection**
 ```
 🎯 LONG Anchor Profit-Taking Signal: {
   position: "ANCHOR_LONG",
@@ -587,21 +668,40 @@ Liquidation-based exit triggered: {
   isAboveResistance: true,
   rsiOverbought: true,
   volumeDecreasing: true,
-  volumeThreshold: 0.1
+  pricePeakDetected: false,
+  exitReason: "RSI overbought"
 }
 
-🎯 SHORT Opportunity Profit-Taking Signal: {
-  position: "OPPORTUNITY_SHORT",
-  entryPrice: "0.8900",
-  currentPrice: "0.8600",
-  profit: "3.37%",
-  supportLevel: "0.8598",
-  description: "Low",
-  importance: "HIGH",
-  isNearSupport: true,
-  isBelowSupport: true,
-  rsiOversold: true,
-  volumeThreshold: 0.1
+🎯 LONG Scalp Profit-Taking Signal: {
+  position: "SCALP_LONG",
+  entryPrice: "0.8850",
+  currentPrice: "0.8880",
+  profit: "0.34%",
+  resistanceLevel: "0.8885",
+  isNearResistance: true,
+  isAboveResistance: true,
+  rsiOverbought: false,
+  volumeDecreasing: false,
+  pricePeakDetected: true,
+  exitReason: "Price peak detected"
+}
+
+🔍 Price Peak Detected: {
+  position: "LONG",
+  entryPrice: "0.8600",
+  peakPrice: "0.8975",
+  currentPrice: "0.8960",
+  decline: "0.17%",
+  reason: "Price peaked and started declining"
+}
+
+🔍 Scalp Price Peak Detected: {
+  position: "SCALP_LONG",
+  entryPrice: "0.8850",
+  peakPrice: "0.8880",
+  currentPrice: "0.8875",
+  decline: "0.06%",
+  reason: "Scalp price peaked and started declining"
 }
 ```
 
@@ -706,6 +806,13 @@ tail -f logs/trading-bot.log
 - Ensure volume requirements are met
 - Check RSI and trend conditions
 - Verify margin mode is set to ISOLATED
+
+**Profit-Taking Issues**
+- Check if price peak detection is working (look for "🔍 Price Peak Detected" logs)
+- Verify RSI/volume conditions are being met
+- Monitor profit-taking signals in logs
+- Ensure minimum profit thresholds are reached
+- Check if positions are hitting support/resistance levels
 
 **Hedge Issues**
 - Check if hedge take profit orders are being set
