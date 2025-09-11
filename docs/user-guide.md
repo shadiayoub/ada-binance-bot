@@ -580,12 +580,13 @@ The bot now includes **intelligent profit-taking** with **price peak detection**
 - ✅ **Price Peak Detected**: Price peaked at $0.8975, now declining 0.3%
 - **Result**: Bot exits with profit using peak detection! 🎯
 
-#### **Opportunity Position Profit-Taking**
+#### **Opportunity Position Profit-Taking (UPDATED!)**
 - **Minimum Profit**: 1.5% required (more aggressive)
 - **Level Requirements**: Must hit MEDIUM, HIGH, or CRITICAL importance levels
 - **Primary Confirmation**: RSI overbought/oversold OR volume < 0.1 (consistent with entry)
 - **Fallback Protection**: Price peak/trough detection (never miss opportunities!)
 - **Price Tolerance**: 0.5% around resistance/support levels
+- **Peak Detection**: Same 0.3% threshold as anchor positions
 
 #### **Scalp Position Profit-Taking (NEW!)**
 - **Minimum Profit**: 0.27% required (scalp-specific target)
@@ -836,6 +837,29 @@ Liquidation-based exit triggered: {
   currentPrice: "0.8875",
   decline: "0.06%",
   reason: "Scalp price peaked and started declining"
+}
+
+🎯 LONG Opportunity Profit-Taking Signal: {
+  position: "OPPORTUNITY_LONG",
+  entryPrice: "0.8600",
+  currentPrice: "0.8750",
+  profit: "1.74%",
+  resistanceLevel: "0.8760",
+  isNearResistance: true,
+  isAboveResistance: false,
+  rsiOverbought: false,
+  volumeDecreasing: false,
+  pricePeakDetected: true,
+  exitReason: "Price peak detected"
+}
+
+🔍 Opportunity Price Peak Detected: {
+  position: "OPPORTUNITY_LONG",
+  entryPrice: "0.8600",
+  peakPrice: "0.8750",
+  currentPrice: "0.8740",
+  decline: "0.11%",
+  reason: "Opportunity price peaked and started declining"
 }
 ```
 
