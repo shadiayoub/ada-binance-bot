@@ -175,21 +175,73 @@ export class PositionManager {
    */
   private async closePosition(signal: TradingSignal): Promise<Position | null> {
     try {
+      // Log current positions for debugging
+      logger.info('🔍 Position Manager Debug - Current Positions', {
+        totalPositions: this.currentPositions.length,
+        openPositions: this.currentPositions.filter(p => p.status === 'OPEN').length,
+        positions: this.currentPositions.map(p => ({
+          id: p.id,
+          type: p.type,
+          side: p.side,
+          status: p.status,
+          entryPrice: p.entryPrice
+        })),
+        exitSignal: {
+          type: signal.type,
+          position: signal.position,
+          reason: signal.reason
+        }
+      });
+
       // Find the position to close based on signal
       const positionToClose = this.findPositionToClose(signal);
       
       if (!positionToClose) {
-        logger.warn('No position found to close', { signal });
+        logger.warn('No position found to close', { 
+          signal,
+          availablePositions: this.currentPositions.filter(p => p.status === 'OPEN').map(p => ({
+            type: p.type,
+            side: p.side,
+            id: p.id
+          }))
+        });
         return null;
       }
+
+      logger.info('🎯 Found position to close', {
+        position: {
+          id: positionToClose.id,
+          type: positionToClose.type,
+          side: positionToClose.side,
+          entryPrice: positionToClose.entryPrice
+        },
+        signal: {
+          type: signal.type,
+          position: signal.position,
+          reason: signal.reason
+        }
+      });
 
       await this.binanceService.closePosition(positionToClose);
       positionToClose.status = 'CLOSED';
       
-      logger.info('Position closed', positionToClose);
+      logger.info('✅ Position closed successfully', {
+        position: {
+          id: positionToClose.id,
+          type: positionToClose.type,
+          side: positionToClose.side,
+          entryPrice: positionToClose.entryPrice,
+          closePrice: signal.price
+        }
+      });
+      
       return positionToClose;
     } catch (error) {
-      logger.error('Failed to close position', error);
+      logger.error('❌ Failed to close position', { 
+        signal,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       return null;
     }
   }
@@ -200,9 +252,17 @@ export class PositionManager {
   private findPositionToClose(signal: TradingSignal): Position | null {
     // For exit signals, we need to determine which position to close
     if (signal.position === 'SHORT') {
-      // Close hedge positions
+      // Close SHORT hedge positions
       return this.currentPositions.find(pos => 
         (pos.type === 'ANCHOR_HEDGE' || pos.type === 'OPPORTUNITY_HEDGE') && 
+        pos.side === 'SHORT' &&
+        pos.status === 'OPEN'
+      ) || null;
+    } else if (signal.position === 'LONG') {
+      // Close LONG anchor or opportunity positions
+      return this.currentPositions.find(pos => 
+        (pos.type === 'ANCHOR' || pos.type === 'OPPORTUNITY') && 
+        pos.side === 'LONG' &&
         pos.status === 'OPEN'
       ) || null;
     }
