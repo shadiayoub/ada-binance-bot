@@ -468,22 +468,26 @@ export class HedgeStrategy {
       let nearestSupportPrice = 0;
 
       if (this.useDynamicLevels) {
-        // Use dynamic support levels - get strongest support for hedging
+        // Use dynamic support levels - get second strongest support for hedging
         const supportLevels = this.dynamicLevels.getSupportLevels();
-        const strongestSupport = supportLevels.length > 0 ? 
-          supportLevels.reduce((strongest, level) => 
-            level.strength > strongest.strength ? level : strongest
-          ) : null;
+        const sortedSupports = supportLevels
+          .filter(level => level.price < currentPrice)
+          .sort((a, b) => b.strength - a.strength);
         
-        nearestSupportPrice = strongestSupport ? strongestSupport.price : 0;
-        isBelowFirstSupport = strongestSupport ? currentPrice < strongestSupport.price : false;
+        const secondStrongestSupport = sortedSupports.length >= 2 ? sortedSupports[1] : 
+          (sortedSupports.length === 1 ? sortedSupports[0] : null);
+        
+        nearestSupportPrice = secondStrongestSupport ? secondStrongestSupport.price : 0;
+        isBelowFirstSupport = secondStrongestSupport ? currentPrice < secondStrongestSupport.price : false;
         
         logger.info('🔍 Dynamic hedge check for LONG ANCHOR', {
           currentPrice: currentPrice,
-          strongestSupportPrice: nearestSupportPrice,
+          secondStrongestSupportPrice: nearestSupportPrice,
           isBelowSupport: isBelowFirstSupport,
           useDynamicLevels: true,
-          supportLevelsCount: supportLevels.length
+          supportLevelsCount: supportLevels.length,
+          sortedSupportsCount: sortedSupports.length,
+          strongestSupportPrice: sortedSupports.length > 0 ? sortedSupports[0]?.price || 0 : 0
         });
       } else {
         // Use static support levels - price below first support
@@ -504,21 +508,25 @@ export class HedgeStrategy {
       let isAboveFirstResistance = false;
 
       if (this.useDynamicLevels) {
-        // Use dynamic resistance levels - get strongest resistance for hedging
+        // Use dynamic resistance levels - get second strongest resistance for hedging
         const resistanceLevels = this.dynamicLevels.getResistanceLevels();
-        const strongestResistance = resistanceLevels.length > 0 ? 
-          resistanceLevels.reduce((strongest, level) => 
-            level.strength > strongest.strength ? level : strongest
-          ) : null;
+        const sortedResistances = resistanceLevels
+          .filter(level => level.price > currentPrice)
+          .sort((a, b) => b.strength - a.strength);
         
-        isAboveFirstResistance = strongestResistance ? currentPrice > strongestResistance.price : false;
+        const secondStrongestResistance = sortedResistances.length >= 2 ? sortedResistances[1] : 
+          (sortedResistances.length === 1 ? sortedResistances[0] : null);
+        
+        isAboveFirstResistance = secondStrongestResistance ? currentPrice > secondStrongestResistance.price : false;
         
         logger.info('🔍 Dynamic hedge check for SHORT ANCHOR', {
           currentPrice: currentPrice,
-          strongestResistancePrice: strongestResistance ? strongestResistance.price : 0,
+          secondStrongestResistancePrice: secondStrongestResistance ? secondStrongestResistance.price : 0,
           isAboveResistance: isAboveFirstResistance,
           useDynamicLevels: true,
-          resistanceLevelsCount: resistanceLevels.length
+          resistanceLevelsCount: resistanceLevels.length,
+          sortedResistancesCount: sortedResistances.length,
+          strongestResistancePrice: sortedResistances.length > 0 ? sortedResistances[0]?.price || 0 : 0
         });
       } else {
         // Use static resistance levels - price above first resistance
