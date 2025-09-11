@@ -38,6 +38,8 @@ export class BinanceService {
 
       // Set margin mode to ISOLATED (CRITICAL for hedge strategy)
       await this.setMarginMode();
+      // TODO: Set position side mode to HEDGE (temporarily disabled until method is found)
+      // await this.setPositionSideMode();
       
       // Set leverage for the trading pair
       await this.setLeverage();
@@ -73,6 +75,25 @@ export class BinanceService {
     }
   }
 
+
+  /**
+   * Set position side mode to HEDGE (allows both LONG and SHORT positions)
+   */
+  private async setPositionSideMode(): Promise<void> {
+    try {
+      // Try different method name - might be futuresPositionSideDual
+      await this.client.futuresPositionSideDual('true');
+      logger.info('Position side mode set to HEDGE (dual side)');
+    } catch (error) {
+      // If already set to hedge mode, this will throw an error - that's fine
+      if (error instanceof Error && error.message?.includes('No need to change position side')) {
+        logger.info('Position side mode already set to HEDGE (dual side)');
+      } else {
+        logger.error('Failed to set position side mode to HEDGE', error);
+        throw error;
+      }
+    }
+  }
 
   /**
    * Set leverage for the trading pair
@@ -126,7 +147,7 @@ export class BinanceService {
   /**
    * Get kline data for technical analysis
    */
-  async getKlines(timeframe: '1h' | '4h', limit: number = 100): Promise<MarketData[]> {
+  async getKlines(timeframe: '15m' | '1h' | '4h', limit: number = 100): Promise<MarketData[]> {
     try {
       const klines = await this.client.futuresCandles({
         symbol: this.config.tradingPair,
@@ -146,6 +167,7 @@ export class BinanceService {
       throw error;
     }
   }
+
 
   /**
    * Open a new position
@@ -168,12 +190,26 @@ export class BinanceService {
       const notionalValue = size * this.config.baseBalance * leverage;
       const positionSize = notionalValue / currentPrice;
 
-      // Open the position
+      // Open the position - round to whole numbers for ADAUSDT (Binance requirement)
+      const roundedQuantity = Math.round(positionSize);
+      
+      logger.info('Position sizing calculation', {
+        side,
+        size,
+        leverage,
+        baseBalance: this.config.baseBalance,
+        currentPrice: currentPrice.toFixed(4),
+        notionalValue: notionalValue.toFixed(2),
+        positionSize: positionSize.toFixed(6),
+        roundedQuantity: roundedQuantity.toString()
+      });
+      // In Hedge Mode, Binance automatically handles position sides
+      // We just need to open regular LONG/SHORT positions
       const order = await this.client.futuresOrder({
         symbol: this.config.tradingPair,
         side: side === 'LONG' ? 'BUY' : 'SELL',
         type: 'MARKET',
-        quantity: positionSize.toFixed(3)
+        quantity: roundedQuantity.toString()
       });
 
       const position: Position = {
@@ -208,6 +244,7 @@ export class BinanceService {
    */
   async closePosition(position: Position): Promise<void> {
     try {
+      // In Hedge Mode, Binance automatically handles position sides
       const order = await this.client.futuresOrder({
         symbol: this.config.tradingPair,
         side: position.side === 'LONG' ? 'SELL' : 'BUY',
@@ -311,6 +348,7 @@ export class BinanceService {
    */
   private async closePositionAtPrice(position: Position, price: number): Promise<void> {
     try {
+      // In Hedge Mode, Binance automatically handles position sides
       const order = await this.client.futuresOrder({
         symbol: this.config.tradingPair,
         side: position.side === 'LONG' ? 'SELL' : 'BUY',
@@ -343,6 +381,7 @@ export class BinanceService {
    */
   async setTakeProfitOrder(position: Position, takeProfitPrice: number): Promise<void> {
     try {
+      // In Hedge Mode, Binance automatically handles position sides
       await this.client.futuresOrder({
         symbol: this.config.tradingPair,
         side: position.side === 'LONG' ? 'SELL' : 'BUY',

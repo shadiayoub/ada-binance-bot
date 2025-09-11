@@ -11,6 +11,7 @@ import { BinanceService } from './services/BinanceService';
 import { TechnicalAnalysis } from './services/TechnicalAnalysis';
 import { PositionManager } from './services/PositionManager';
 import { HedgeStrategy } from './strategies/HedgeStrategy';
+import { ScalpStrategy } from './strategies/ScalpStrategy';
 import { logger } from './utils/logger';
 import * as cron from 'node-cron';
 
@@ -19,6 +20,7 @@ export class TradingBot {
   private technicalAnalysis: TechnicalAnalysis;
   private positionManager: PositionManager;
   private hedgeStrategy: HedgeStrategy;
+  private scalpStrategy: ScalpStrategy;
   private config: TradingConfig;
   private isRunning: boolean = false;
   private cronJob: cron.ScheduledTask | null = null;
@@ -39,7 +41,14 @@ export class TradingBot {
       this.technicalAnalysis,
       supportResistanceLevels,
       positionSizing,
-      leverageSettings
+      leverageSettings,
+      this.positionManager.getDynamicLevels()
+    );
+    this.scalpStrategy = new ScalpStrategy(
+      this.binanceService,
+      this.technicalAnalysis,
+      this.positionManager.getDynamicLevels(),
+      this.positionManager
     );
   }
 
@@ -134,37 +143,53 @@ export class TradingBot {
       // Update strategy with current positions
       this.hedgeStrategy.updatePositions(this.positionManager.getCurrentPositions());
       
-      // Get market data for both timeframes
+      // Get market data for all timeframes
       const candles4h = this.config.historical4hDays * 6; // 4H candles per day
       const candles1h = this.config.historical1hDays * 24; // 1H candles per day
+      const candles15m = this.config.historical15mDays * 96; // 15m candles per day (96 = 24*4)
       
       logger.info('Fetching historical data for level learning...', {
         '4h_days': this.config.historical4hDays,
         '1h_days': this.config.historical1hDays,
+        '15m_days': this.config.historical15mDays,
         '4h_candles': candles4h,
-        '1h_candles': candles1h
+        '1h_candles': candles1h,
+        '15m_candles': candles15m
       });
       
       const marketData4h = await this.binanceService.getKlines('4h', candles4h);
       const marketData1h = await this.binanceService.getKlines('1h', candles1h);
+      const marketData15m = await this.binanceService.getKlines('15m', candles15m);
       
       logger.info('Market data fetched', {
         '4h_candles': marketData4h.length,
         '1h_candles': marketData1h.length,
+        '15m_candles': marketData15m.length,
         '4h_period': `${marketData4h.length / 6} days`,
-        '1h_period': `${marketData1h.length / 24} days`
+        '1h_period': `${marketData1h.length / 24} days`,
+        '15m_period': `${marketData15m.length / 96} days`
       });
       
-      // Execute strategy
-      const signals = await this.hedgeStrategy.executeStrategy(marketData4h, marketData1h);
+      // Learn levels from all timeframes combined
+      const dynamicLevels = this.positionManager.getDynamicLevels();
+      dynamicLevels.learnLevelsCombined(marketData4h, marketData1h, marketData15m);
+      
+      // Execute hedge strategy
+      const hedgeSignals = await this.hedgeStrategy.executeStrategy(marketData4h, marketData1h);
+      
+      // Execute scalp strategy with 15m data
+      const scalpSignals = await this.scalpStrategy.executeScalpStrategy(marketData4h, marketData1h, marketData15m);
+      
+      // Combine all signals
+      const allSignals = [...hedgeSignals, ...scalpSignals];
       
       // Execute signals
-      for (const signal of signals) {
+      for (const signal of allSignals) {
         await this.executeSignal(signal);
       }
       
       // Log current state
-      this.logCurrentState();
+      await this.logCurrentState();
       
     } catch (error) {
       logger.error('Error in trading loop', error);
@@ -220,17 +245,23 @@ export class TradingBot {
   /**
    * Log current bot state
    */
-  private logCurrentState(): void {
-    const botState = this.positionManager.getBotState();
-    const positionSummary = this.positionManager.getPositionSummary();
-    
-    // Get current support/resistance levels
-    const supportLevels = this.hedgeStrategy.getSupportLevels();
-    const resistanceLevels = this.hedgeStrategy.getResistanceLevels();
-    
-    // Get current price for comprehensive analysis (use last known price)
-    const currentPrice = 0.866985; // This should be updated with real-time price
-    const comprehensiveInfo = this.hedgeStrategy.getComprehensiveLevelsInfo(currentPrice);
+  private async logCurrentState(): Promise<void> {
+    try {
+      logger.info('🔍 logCurrentState method called');
+      const botState = this.positionManager.getBotState();
+      const positionSummary = this.positionManager.getPositionSummary();
+      
+      // Get current support/resistance levels
+      const supportLevels = this.hedgeStrategy.getSupportLevels();
+      const resistanceLevels = this.hedgeStrategy.getResistanceLevels();
+      
+      // Get scalp trade status
+      const scalpTradeStatus = this.scalpStrategy.getScalpTradeStatus();
+      
+      // Get current price for comprehensive analysis
+      const currentPrice = await this.binanceService.getCurrentPrice();
+      logger.info('🔍 Getting comprehensive info for price', { currentPrice: currentPrice.toFixed(4) });
+      const comprehensiveInfo = this.hedgeStrategy.getComprehensiveLevelsInfo(currentPrice);
     
     logger.info('Bot state update', {
       isRunning: this.isRunning,
@@ -260,8 +291,12 @@ export class TradingBot {
           description: comprehensiveInfo.shortEntry.description,
           importance: comprehensiveInfo.shortEntry.importance
         } : null
-      }
+      },
+      scalpTrade: scalpTradeStatus
     });
+    } catch (error) {
+      logger.error('Error in logCurrentState', error);
+    }
   }
 
   /**

@@ -7,6 +7,8 @@ export interface DynamicLevel {
   touches: number; // How many times price touched this level
   lastTouch: Date;
   type: 'SUPPORT' | 'RESISTANCE';
+  timeframe: '4H' | '1H' | '15M'; // Which timeframe this level came from
+  timeframeWeight: number; // Weight based on timeframe (4H=1.0, 1H=0.7, 15M=0.4)
 }
 
 export class DynamicLevels {
@@ -14,6 +16,46 @@ export class DynamicLevels {
   private readonly maxLevels = 10;
   private readonly minTouches = 2;
   private readonly tolerance = 0.005; // 0.5% tolerance for level detection
+
+  /**
+   * Learn levels from market data (alias for updateLevels)
+   */
+  learnLevels(marketData: MarketData[]): void {
+    this.updateLevels(marketData);
+  }
+
+  /**
+   * Learn levels from multiple timeframes with combined approach
+   */
+  learnLevelsCombined(
+    marketData4h: MarketData[], 
+    marketData1h: MarketData[], 
+    marketData15m: MarketData[]
+  ): void {
+    logger.info('🔄 Learning levels from combined timeframes', {
+      '4h_candles': marketData4h.length,
+      '1h_candles': marketData1h.length,
+      '15m_candles': marketData15m.length
+    });
+
+    // Learn from each timeframe with appropriate weights
+    this.updateLevelsWithTimeframe(marketData4h, '4H', 1.0);
+    this.updateLevelsWithTimeframe(marketData1h, '1H', 0.7);
+    this.updateLevelsWithTimeframe(marketData15m, '15M', 0.4);
+
+    // Clean up and sort combined levels
+    this.cleanupWeakLevels();
+    this.sortLevelsByStrength();
+    
+    logger.info('✅ Combined learning completed', {
+      totalLevels: this.levels.length,
+      supportLevels: this.levels.filter(l => l.type === 'SUPPORT').length,
+      resistanceLevels: this.levels.filter(l => l.type === 'RESISTANCE').length
+    });
+
+    // Log the combined levels
+    this.logCurrentLevels();
+  }
 
   /**
    * Update levels based on new market data
@@ -41,6 +83,23 @@ export class DynamicLevels {
 
     // Log the actual levels for monitoring
     this.logCurrentLevels();
+  }
+
+  /**
+   * Update levels with specific timeframe and weight
+   */
+  private updateLevelsWithTimeframe(
+    marketData: MarketData[], 
+    timeframe: '4H' | '1H' | '15M', 
+    timeframeWeight: number
+  ): void {
+    if (marketData.length < 20) return;
+
+    // Detect new levels from this timeframe
+    this.detectNewLevelsWithTimeframe(marketData, timeframe, timeframeWeight);
+    
+    // Update existing levels from this timeframe
+    this.updateExistingLevelsWithTimeframe(marketData, timeframe, timeframeWeight);
   }
 
   /**
@@ -83,7 +142,9 @@ export class DynamicLevels {
           strength: 0.3, // Initial strength
           touches: 1,
           lastTouch: new Date(),
-          type: 'RESISTANCE'
+          type: 'RESISTANCE',
+          timeframe: '15M', // Default for backward compatibility
+          timeframeWeight: 0.4
         });
       }
     });
@@ -97,7 +158,89 @@ export class DynamicLevels {
           strength: 0.3, // Initial strength
           touches: 1,
           lastTouch: new Date(),
-          type: 'SUPPORT'
+          type: 'SUPPORT',
+          timeframe: '15M', // Default for backward compatibility
+          timeframeWeight: 0.4
+        });
+      }
+    });
+  }
+
+  /**
+   * Detect new levels with specific timeframe and weight
+   */
+  private detectNewLevelsWithTimeframe(
+    marketData: MarketData[], 
+    timeframe: '4H' | '1H' | '15M', 
+    timeframeWeight: number
+  ): void {
+    const prices = marketData.map(data => data.price);
+    const highs: number[] = [];
+    const lows: number[] = [];
+
+    // Find local highs and lows
+    for (let i = 2; i < prices.length - 2; i++) {
+      const current = prices[i];
+      const prev1 = prices[i-1];
+      const prev2 = prices[i-2];
+      const next1 = prices[i+1];
+      const next2 = prices[i+2];
+      
+      if (current && prev1 && prev2 && next1 && next2) {
+        // Check for local high
+        if (current > prev1 && current > prev2 && 
+            current > next1 && current > next2) {
+          highs.push(current);
+        }
+        
+        // Check for local low
+        if (current < prev1 && current < prev2 && 
+            current < next1 && current < next2) {
+          lows.push(current);
+        }
+      }
+    }
+
+    // Create resistance levels from highs
+    highs.forEach(high => {
+      const existingLevel = this.findNearbyLevel(high, 'RESISTANCE');
+      if (existingLevel) {
+        // Update existing level with timeframe weight
+        existingLevel.touches++;
+        existingLevel.lastTouch = new Date();
+        existingLevel.strength = Math.min(1.0, existingLevel.strength + (timeframeWeight * 0.1));
+      } else {
+        // Create new level
+        this.levels.push({
+          price: high,
+          strength: 0.3 * timeframeWeight, // Initial strength weighted by timeframe
+          touches: 1,
+          lastTouch: new Date(),
+          type: 'RESISTANCE',
+          timeframe,
+          timeframeWeight
+        });
+      }
+    });
+
+    // Create support levels from lows
+    lows.forEach(low => {
+      const existingLevel = this.findNearbyLevel(low, 'SUPPORT');
+      if (existingLevel) {
+        // Update existing level with timeframe weight
+        existingLevel.touches++;
+        existingLevel.lastTouch = new Date();
+        existingLevel.strength = Math.min(1.0, existingLevel.strength + (timeframeWeight * 0.1));
+      } else {
+        // Create new level
+        this.levels.push({
+          price: low,
+          strength: 0.3 * timeframeWeight, // Initial strength weighted by timeframe
+          touches: 1,
+          lastTouch: new Date(),
+          type: 'SUPPORT',
+          timeframe,
+          timeframeWeight
         });
       }
     });
@@ -119,14 +262,51 @@ export class DynamicLevels {
         level.touches++;
         level.lastTouch = new Date();
         
-        // Increase strength based on touches
-        level.strength = Math.min(1.0, 0.3 + (level.touches - 1) * 0.1);
+        // Increase strength based on touches and timeframe weight
+        level.strength = Math.min(1.0, 0.3 + (level.touches - 1) * 0.1 * level.timeframeWeight);
         
         logger.debug('Level touched', {
           price: level.price,
           type: level.type,
+          timeframe: level.timeframe,
           touches: level.touches,
           strength: level.strength
+        });
+      }
+    });
+  }
+
+  /**
+   * Update existing levels with timeframe-specific weighting
+   */
+  private updateExistingLevelsWithTimeframe(
+    marketData: MarketData[], 
+    timeframe: '4H' | '1H' | '15M', 
+    timeframeWeight: number
+  ): void {
+    const lastData = marketData[marketData.length - 1];
+    if (!lastData) return;
+    const currentPrice = lastData.price;
+    
+    this.levels.forEach(level => {
+      const distance = Math.abs(currentPrice - level.price) / level.price;
+      
+      if (distance <= this.tolerance) {
+        // Price is near this level
+        level.touches++;
+        level.lastTouch = new Date();
+        
+        // Increase strength based on touches and timeframe weight
+        const strengthIncrease = (timeframeWeight * 0.1);
+        level.strength = Math.min(1.0, level.strength + strengthIncrease);
+        
+        logger.debug('Level touched (timeframe)', {
+          price: level.price,
+          type: level.type,
+          timeframe,
+          touches: level.touches,
+          strength: level.strength,
+          strengthIncrease
         });
       }
     });
@@ -273,19 +453,28 @@ export class DynamicLevels {
       support: supportLevels.map(level => ({
         price: level.price.toFixed(4),
         strength: level.strength,
-        touches: level.touches
+        touches: level.touches,
+        timeframe: level.timeframe,
+        weight: level.timeframeWeight
       })),
       resistance: resistanceLevels.map(level => ({
         price: level.price.toFixed(4),
         strength: level.strength,
-        touches: level.touches
+        touches: level.touches,
+        timeframe: level.timeframe,
+        weight: level.timeframeWeight
       })),
       summary: {
         totalLevels: this.levels.length,
         supportCount: supportLevels.length,
         resistanceCount: resistanceLevels.length,
         strongestSupport: supportLevels.length > 0 ? supportLevels[0]?.price.toFixed(4) : 'None',
-        strongestResistance: resistanceLevels.length > 0 ? resistanceLevels[0]?.price.toFixed(4) : 'None'
+        strongestResistance: resistanceLevels.length > 0 ? resistanceLevels[0]?.price.toFixed(4) : 'None',
+        timeframeBreakdown: {
+          '4H': this.levels.filter(l => l.timeframe === '4H').length,
+          '1H': this.levels.filter(l => l.timeframe === '1H').length,
+          '15M': this.levels.filter(l => l.timeframe === '15M').length
+        }
       }
     });
   }

@@ -6,6 +6,7 @@ import {
   BotState 
 } from '../types';
 import { BinanceService } from './BinanceService';
+import { DynamicLevels } from './DynamicLevels';
 import { logger } from '../utils/logger';
 
 export class PositionManager {
@@ -14,6 +15,7 @@ export class PositionManager {
   private leverageSettings: LeverageSettings;
   private currentPositions: Position[] = [];
   private botState: BotState;
+  private dynamicLevels: DynamicLevels;
 
   constructor(
     binanceService: BinanceService,
@@ -23,6 +25,7 @@ export class PositionManager {
     this.binanceService = binanceService;
     this.positionSizing = positionSizing;
     this.leverageSettings = leverageSettings;
+    this.dynamicLevels = new DynamicLevels();
     this.botState = {
       isRunning: false,
       currentPositions: [],
@@ -417,5 +420,12 @@ export class PositionManager {
         guaranteedProfit
       }
     };
+  }
+
+  /**
+   * Get dynamic levels instance
+   */
+  getDynamicLevels(): DynamicLevels {
+    return this.dynamicLevels;
   }
 }

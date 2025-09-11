@@ -29,12 +29,13 @@ export class HedgeStrategy {
     technicalAnalysis: TechnicalAnalysis,
     supportResistanceLevels: SupportResistanceLevels,
     positionSizing: PositionSizing,
-    leverageSettings: LeverageSettings
+    leverageSettings: LeverageSettings,
+    dynamicLevels?: DynamicLevels
   ) {
     this.binanceService = binanceService;
     this.technicalAnalysis = technicalAnalysis;
     this.supportResistanceLevels = supportResistanceLevels;
-    this.dynamicLevels = new DynamicLevels();
+    this.dynamicLevels = dynamicLevels || new DynamicLevels();
     this.comprehensiveLevels = new ComprehensiveLevels();
     this.positionSizing = positionSizing;
     this.leverageSettings = leverageSettings;
@@ -47,11 +48,7 @@ export class HedgeStrategy {
     const signals: TradingSignal[] = [];
 
     try {
-      // Update dynamic levels with new market data
-      if (this.useDynamicLevels) {
-        this.dynamicLevels.updateLevels(marketData4h);
-        this.dynamicLevels.updateLevels(marketData1h);
-      }
+      // Dynamic levels are now updated centrally in TradingBot with combined learning
 
       // Get technical indicators for both timeframes
       const indicators4h = this.technicalAnalysis.getTechnicalIndicators(marketData4h);
@@ -196,7 +193,31 @@ export class HedgeStrategy {
     );
 
     for (const hedgePosition of hedgePositions) {
-      if (this.shouldCloseHedge(hedgePosition, currentPrice, indicators1h)) {
+      // Check if hedge should close due to profit exceeding anchor loss
+      const anchorPosition = this.currentPositions.find(pos => 
+        pos.type === 'ANCHOR' && pos.status === 'OPEN'
+      );
+      
+      if (anchorPosition && this.shouldExitHedgeForProfit(anchorPosition, hedgePosition, currentPrice)) {
+        // Exit both positions for net profit (liquidation-based or double profit)
+        signals.push({
+          type: 'EXIT',
+          position: anchorPosition.side,
+          price: currentPrice,
+          confidence: 0.95,
+          reason: 'Liquidation-based hedge strategy - closing both for guaranteed profit',
+          timestamp: new Date()
+        });
+        signals.push({
+          type: 'EXIT',
+          position: hedgePosition.side,
+          price: currentPrice,
+          confidence: 0.95,
+          reason: 'Liquidation-based hedge strategy - closing both for guaranteed profit',
+          timestamp: new Date()
+        });
+      } else if (this.shouldCloseHedge(hedgePosition, currentPrice, indicators1h)) {
+        // Regular hedge exit (price returned to entry)
         signals.push({
           type: 'EXIT',
           position: hedgePosition.side,
@@ -297,19 +318,32 @@ export class HedgeStrategy {
       return false;
     }
     
-    // Check if current price is near or at the resistance level (within 1.0%)
-    const priceTolerance = 0.01; // 1.0% tolerance
+    // Check if current price is near or at the resistance level (within 2.0% - more relaxed for hedged strategy)
+    const priceTolerance = 0.02; // 2.0% tolerance - increased from 1.0% for more opportunities
     const isNearResistance = Math.abs(currentPrice - longEntry.price) / longEntry.price <= priceTolerance;
     const isAboveResistance = currentPrice >= longEntry.price;
     
-    // Check volume confirmation
+    // Check volume confirmation (more relaxed for hedged strategy)
     const hasVolumeConfirmation = this.technicalAnalysis.isVolumeAboveThreshold(indicators1h.volumeRatio);
     
-    // Check RSI is not overbought
+    // Check RSI is in valid range (expanded range for hedged strategy)
     const rsiValid = this.technicalAnalysis.isRSIInValidRange(indicators1h.rsi);
     
-    // Check trend alignment
-    const trendAligned = indicators4h.trend === 'BULLISH' || indicators4h.trend === 'SIDEWAYS';
+    // Check trend alignment (allow all trends for hedged strategy)
+    const trendAligned = true; // Allow all trends since we're hedged - we profit either way
+
+    // Debug logging for volume analysis
+    logger.info('🔍 Volume Analysis for LONG Entry', {
+      currentPrice: currentPrice.toFixed(4),
+      resistanceLevel: longEntry.price.toFixed(4),
+      volumeRatio: indicators1h.volumeRatio.toFixed(2),
+      volumeThreshold: 0.1, // Current volume multiplier setting
+      hasVolumeConfirmation,
+      rsi: indicators1h.rsi.toFixed(1),
+      rsiValid,
+      isNearResistance,
+      isAboveResistance
+    });
 
     // Entry trigger: near resistance OR above resistance
     const shouldEnter = (isNearResistance || isAboveResistance) && hasVolumeConfirmation && rsiValid && trendAligned;
@@ -349,19 +383,19 @@ export class HedgeStrategy {
       return false;
     }
     
-    // Check if current price is near or at the support level (within 1.0%)
-    const priceTolerance = 0.01; // 1.0% tolerance
+    // Check if current price is near or at the support level (within 2.0% - more relaxed for hedged strategy)
+    const priceTolerance = 0.02; // 2.0% tolerance - increased from 1.0% for more opportunities
     const isNearSupport = Math.abs(currentPrice - shortEntry.price) / shortEntry.price <= priceTolerance;
     const isBelowSupport = currentPrice <= shortEntry.price;
     
-    // Check volume confirmation
+    // Check volume confirmation (more relaxed for hedged strategy)
     const hasVolumeConfirmation = this.technicalAnalysis.isVolumeAboveThreshold(indicators1h.volumeRatio);
     
-    // Check RSI is not oversold
+    // Check RSI is in valid range (expanded range for hedged strategy)
     const rsiValid = this.technicalAnalysis.isRSIInValidRange(indicators1h.rsi);
     
-    // Check trend alignment (bearish or sideways for short entries)
-    const trendAligned = indicators4h.trend === 'BEARISH' || indicators4h.trend === 'SIDEWAYS';
+    // Check trend alignment (allow all trends for hedged strategy)
+    const trendAligned = true; // Allow all trends since we're hedged - we profit either way
 
     // Entry trigger: near support OR below support
     const shouldEnter = (isNearSupport || isBelowSupport) && hasVolumeConfirmation && rsiValid && trendAligned;
@@ -425,6 +459,24 @@ export class HedgeStrategy {
 
       return isAboveFirstResistance;
     }
+  }
+
+  /**
+   * Calculate hedge take profit price (just before anchor liquidation)
+   */
+  private calculateHedgeTakeProfitPrice(anchorPosition: Position, hedgePosition: Position): number {
+    const anchorLiquidationPrice = this.calculateLiquidationPrice(anchorPosition);
+    const liquidationBuffer = 0.02; // 2% buffer before liquidation
+    
+    if (anchorPosition.side === 'LONG' && hedgePosition.side === 'SHORT') {
+      // For SHORT hedge against LONG anchor: TP just before LONG liquidation
+      return anchorLiquidationPrice * (1 + liquidationBuffer);
+    } else if (anchorPosition.side === 'SHORT' && hedgePosition.side === 'LONG') {
+      // For LONG hedge against SHORT anchor: TP just before SHORT liquidation
+      return anchorLiquidationPrice * (1 - liquidationBuffer);
+    }
+    
+    return hedgePosition.entryPrice; // Fallback to entry price
   }
 
   /**
@@ -675,6 +727,104 @@ export class HedgeStrategy {
     } else {
       return ((position.entryPrice - currentPrice) / position.entryPrice) * 100;
     }
+  }
+
+  /**
+   * Calculate absolute dollar profit/loss for a position
+   */
+  private calculateAbsoluteProfit(position: Position, currentPrice: number): number {
+    const notionalValue = position.size * position.entryPrice;
+    const profitPercentage = this.calculateProfitPercentage(position, currentPrice) / 100;
+    return notionalValue * profitPercentage;
+  }
+
+  /**
+   * Check if hedge should exit based on liquidation-based strategy
+   */
+  private shouldExitHedgeForProfit(anchorPosition: Position, hedgePosition: Position, currentPrice: number): boolean {
+    // Get anchor liquidation price
+    const anchorLiquidationPrice = this.calculateLiquidationPrice(anchorPosition);
+    
+    // Check if we're approaching anchor liquidation (within 1% of liquidation price)
+    const liquidationBuffer = 0.01; // 1% buffer before liquidation
+    const liquidationThreshold = anchorLiquidationPrice * (1 + liquidationBuffer);
+    
+    if (anchorPosition.side === 'LONG' && currentPrice <= liquidationThreshold) {
+      // LONG approaching liquidation - check if SHORT has enough profit to cover loss
+      const anchorLoss = this.calculateAbsoluteProfit(anchorPosition, anchorLiquidationPrice);
+      const hedgeProfit = this.calculateAbsoluteProfit(hedgePosition, currentPrice);
+      
+      // Exit if hedge profit exceeds anchor loss at liquidation
+      const netProfit = hedgeProfit + anchorLoss; // anchorLoss is negative
+      
+      if (netProfit > 0) {
+        logger.info('🎯 Liquidation-Based Exit - Guaranteed Profit', {
+          anchorLiquidation: anchorLiquidationPrice.toFixed(4),
+          currentPrice: currentPrice.toFixed(4),
+          liquidationBuffer: `${(liquidationBuffer * 100).toFixed(1)}%`,
+          anchorLossAtLiquidation: anchorLoss.toFixed(2),
+          hedgeProfit: hedgeProfit.toFixed(2),
+          netProfit: netProfit.toFixed(2),
+          strategy: 'Liquidation-based hedge exit'
+        });
+        return true;
+      }
+    }
+    
+    // Check for double profit scenario - hedge TP hit and price returning
+    if (this.isHedgeTakeProfitHit(hedgePosition, currentPrice) && this.isPriceReturningToSupport(anchorPosition, currentPrice)) {
+      logger.info('🚀 Double Profit Scenario - Hedge TP Hit', {
+        hedgeEntry: hedgePosition.entryPrice.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        hedgeProfit: this.calculateAbsoluteProfit(hedgePosition, currentPrice).toFixed(2),
+        strategy: 'Double profit - hedge TP achieved'
+      });
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Calculate liquidation price for a position
+   */
+  private calculateLiquidationPrice(position: Position): number {
+    // Simplified liquidation calculation (Binance uses more complex formula)
+    const leverage = position.leverage || 10;
+    const marginRatio = 1 / leverage;
+    
+    if (position.side === 'LONG') {
+      return position.entryPrice * (1 - marginRatio);
+    } else {
+      return position.entryPrice * (1 + marginRatio);
+    }
+  }
+
+  /**
+   * Check if hedge take profit is hit
+   */
+  private isHedgeTakeProfitHit(hedgePosition: Position, currentPrice: number): boolean {
+    // Check if hedge has achieved significant profit (e.g., 2%+)
+    const profitPercentage = this.calculateProfitPercentage(hedgePosition, currentPrice);
+    return profitPercentage >= 2.0; // 2% profit threshold
+  }
+
+  /**
+   * Check if price is returning to support (for double profit scenario)
+   */
+  private isPriceReturningToSupport(anchorPosition: Position, currentPrice: number): boolean {
+    if (anchorPosition.side === 'LONG') {
+      // For LONG anchor, check if price is returning above support levels
+      const supportLevels = this.dynamicLevels.getSupportLevels();
+      const nearestSupport = supportLevels.find(level => level.price < currentPrice);
+      
+      if (nearestSupport) {
+        const priceTolerance = 0.005; // 0.5% tolerance
+        return Math.abs(currentPrice - nearestSupport.price) / nearestSupport.price <= priceTolerance;
+      }
+    }
+    
+    return false;
   }
 
   /**

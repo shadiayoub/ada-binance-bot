@@ -7,6 +7,7 @@
 - pnpm package manager
 - Binance account with Futures enabled
 - Binance API credentials (with Futures trading permissions)
+- **🔧 CRITICAL: Binance account set to HEDGE MODE** (see setup instructions below)
 
 ### **Installation**
 
@@ -33,6 +34,38 @@ pnpm run build
 pnpm run start
 ```
 
+## 🔧 **CRITICAL: Binance HEDGE Mode Setup**
+
+**⚠️ IMPORTANT**: The bot requires your Binance account to be set to **HEDGE MODE** to function properly. This is essential for the 4-position hedging strategy.
+
+### **Step-by-Step Setup:**
+
+1. **Log into Binance Futures**
+   - Go to [Binance Futures](https://www.binance.com/en/futures)
+   - Ensure you're on the Futures trading interface
+
+2. **Access Position Mode Settings**
+   - Click on your **profile icon** (top right)
+   - Select **"Position Mode"** from the dropdown menu
+
+3. **Change to HEDGE Mode**
+   - You'll see two options:
+     - ❌ **One-way Mode** (default)
+     - ✅ **Hedge Mode** (required)
+   - **Select "Hedge Mode"** and confirm the change
+
+4. **Verify the Change**
+   - You should see "Hedge Mode" displayed in your interface
+   - This allows both LONG and SHORT positions simultaneously
+
+### **Why HEDGE Mode is Required:**
+- **4-Position Strategy**: Anchor, Hedge, Opportunity, Opportunity Hedge
+- **Bidirectional Trading**: Both LONG and SHORT positions
+- **Risk Management**: Independent position management
+- **Guaranteed Profit**: Mathematical hedging system
+
+**🚨 Without HEDGE mode, you'll get error: `Order's position side does not match user's setting. {"code":-4061}`**
+
 ## 🌟 **Key Features**
 
 ### **Revolutionary Trading Capabilities**
@@ -44,6 +77,8 @@ pnpm run start
 - **⚡ Real-time Monitoring**: Comprehensive logging and performance tracking
 - **🎮 Zone-Aware Trading**: Automatic adaptation to different market conditions
 - **🔒 ISOLATED Margin Mode**: Independent position risk management
+- **🚀 High-Frequency Scalping**: 15-minute interval trading with hedged backup system
+- **🎯 Multi-Timeframe Analysis**: Combined 4H, 1H, and 15m data for comprehensive market view
 
 ### **Market Coverage**
 - **Extreme Bull Zone**: $1.00+ (capture massive bull runs)
@@ -83,6 +118,22 @@ OPPORTUNITY_HEDGE_SIZE=0.30    # 30% of balance
 ANCHOR_LEVERAGE=10             # 10x leverage
 HEDGE_LEVERAGE=15              # 15x leverage
 OPPORTUNITY_LEVERAGE=10        # 10x leverage
+```
+
+#### **Scalp Strategy Configuration**
+```env
+# Scalp Position Sizing
+SCALP_POSITION_SIZE=0.10       # 10% of balance for scalp
+SCALP_HEDGE_SIZE=0.10          # 10% of balance for scalp hedge
+
+# Scalp Leverage Settings
+SCALP_LEVERAGE=15              # 15x leverage for scalp
+SCALP_HEDGE_LEVERAGE=18        # 18x leverage for scalp hedge (higher for protection)
+
+# Multi-Timeframe Learning
+HISTORICAL_4H_DAYS=180         # 6 months of 4H data
+HISTORICAL_1H_DAYS=7           # 7 days of 1H data
+HISTORICAL_15M_DAYS=1          # 1 day of 15m data for scalp precision
 ```
 
 ### **Optional Settings**
@@ -272,6 +323,79 @@ The bot follows this exact sequence:
 ### **Margin Mode: ISOLATED**
 
 - **Critical Setting**: All positions use ISOLATED margin mode
+
+## 🚀 **High-Frequency Scalping Strategy**
+
+### **Overview**
+The bot includes a sophisticated scalping system that operates on 15-minute intervals within tight price ranges, with a crucial hedging backup system to ensure near-zero loss scenarios.
+
+### **Scalp Strategy Components**
+
+#### **1. Capital Allocation**
+- **Scalp Position**: 10% of total balance
+- **Scalp Hedge**: 10% of total balance
+- **Leverage**: 15x for scalp, 18x for hedge (higher leverage for better protection)
+
+#### **2. Entry Conditions**
+- **Timeframe**: 15-minute intervals
+- **Range**: Tight price ranges between learned S/R levels
+- **Confirmation**: Volume + RSI + trend alignment
+- **Target**: Quick 0.5-2% profits within the range
+
+#### **3. Hedged Backup System**
+- **Dynamic Hedging**: Hedges open at learned S/R levels (not fixed pips)
+- **Higher Leverage**: Hedge uses 18x vs 15x scalp leverage
+- **ROI-Based Closure**: Hedge closes ONLY when its ROI becomes higher than scalp's ROI
+- **Continuous Protection**: New hedges can open if scalp continues losing
+
+#### **4. Multi-Timeframe Learning**
+- **4H Data**: 180 days (6 months) for major S/R levels
+- **1H Data**: 7 days for medium-term levels  
+- **15m Data**: 1 day for precise scalp entry/exit levels
+- **Combined Analysis**: All timeframes weighted and combined for comprehensive market view
+
+#### **5. Scalp Trade Lifecycle**
+
+**Phase 1: Entry**
+```
+Current Price: $0.8850
+Scalp Entry: LONG at $0.8850 (10% capital, 15x leverage)
+Target: $0.8900 (0.56% profit)
+```
+
+**Phase 2: If Price Drops**
+```
+Price drops to $0.8800 (learned support level)
+Hedge Opens: SHORT at $0.8800 (10% capital, 18x leverage)
+Scalp: Still open, now losing
+Hedge: Protects against further losses
+```
+
+**Phase 3: Hedge Management**
+```
+Scenario A: Price returns to $0.8850
+- Hedge ROI becomes higher than scalp ROI
+- Hedge closes automatically
+- Scalp continues running
+
+Scenario B: Price continues dropping
+- Hedge profits as price falls
+- New hedge can open at next S/R level
+- Scalp remains protected
+```
+
+#### **6. Risk Management**
+- **Maximum Loss**: Near zero due to hedging system
+- **Position Sizing**: Conservative 10% per position
+- **Leverage Control**: Higher hedge leverage ensures protection
+- **S/R Based**: All decisions based on learned support/resistance levels
+
+### **Scalp Strategy Benefits**
+- **High Frequency**: 15-minute opportunities
+- **Low Risk**: Hedged backup system
+- **Precise Entries**: Multi-timeframe S/R analysis
+- **Guaranteed Protection**: Mathematical hedge system
+- **Continuous Learning**: Dynamic level adaptation
 - **Why Important**: Each position is independent, preventing cascading liquidations
 - **Automatic**: Bot sets ISOLATED mode on initialization
 - **Safety**: One position liquidation cannot affect others
@@ -557,6 +681,25 @@ tail -f logs/trading-bot.log
 - Verify liquidation price calculations
 - Ensure hedge closes when price returns to entry
 - Monitor hedge position status
+
+**Position Side Error (CRITICAL)**
+```
+Error: Order's position side does not match user's setting. {"code":-4061}
+```
+**Solution**: Your Binance account must be set to **HEDGE MODE**:
+1. Log into Binance Futures
+2. Click profile icon → Position Mode
+3. Change from "One-way Mode" to "Hedge Mode"
+4. Restart the bot
+
+**Precision Errors**
+```
+Error: Precision is over the maximum defined for this asset. {"code":-1111}
+```
+**Solution**: The bot automatically handles precision for ADAUSDT (whole numbers). If you see this error, check:
+- Bot is using latest version
+- Position sizing calculations are correct
+- Quantity is rounded to whole numbers
 
 **Learning Issues**
 - Verify historical data is being fetched (check logs for "Fetching historical data")

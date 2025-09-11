@@ -7,6 +7,7 @@ export interface TradingConfig {
   riskPerTrade: number;
   historical4hDays: number;
   historical1hDays: number;
+  historical15mDays: number;
 }
 
 export interface PositionSizing {
@@ -14,12 +15,16 @@ export interface PositionSizing {
   anchorHedgeSize: number;
   opportunityPositionSize: number;
   opportunityHedgeSize: number;
+  scalpPositionSize: number;
+  scalpHedgeSize: number;
 }
 
 export interface LeverageSettings {
   anchorLeverage: number;
   hedgeLeverage: number;
   opportunityLeverage: number;
+  scalpLeverage: number;
+  scalpHedgeLeverage: number;
 }
 
 export interface TechnicalConfig {

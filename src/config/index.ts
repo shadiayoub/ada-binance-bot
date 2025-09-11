@@ -18,6 +18,7 @@ export const tradingConfig: TradingConfig = {
   riskPerTrade: 0, // Not applicable in hedge system - guaranteed profit
   historical4hDays: parseInt(process.env.HISTORICAL_4H_DAYS || '180'),
   historical1hDays: parseInt(process.env.HISTORICAL_1H_DAYS || '7'),
+  historical15mDays: parseInt(process.env.HISTORICAL_15M_DAYS || '1'),
 };
 
 export const positionSizing: PositionSizing = {
@@ -25,12 +26,16 @@ export const positionSizing: PositionSizing = {
   anchorHedgeSize: parseFloat(process.env.ANCHOR_HEDGE_SIZE || '0.30'),
   opportunityPositionSize: parseFloat(process.env.OPPORTUNITY_POSITION_SIZE || '0.20'),
   opportunityHedgeSize: parseFloat(process.env.OPPORTUNITY_HEDGE_SIZE || '0.30'),
+  scalpPositionSize: parseFloat(process.env.SCALP_POSITION_SIZE || '0.10'),
+  scalpHedgeSize: parseFloat(process.env.SCALP_HEDGE_SIZE || '0.10'),
 };
 
 export const leverageSettings: LeverageSettings = {
   anchorLeverage: parseInt(process.env.ANCHOR_LEVERAGE || '10'),
   hedgeLeverage: parseInt(process.env.HEDGE_LEVERAGE || '5'),
   opportunityLeverage: parseInt(process.env.OPPORTUNITY_LEVERAGE || '10'),
+  scalpLeverage: parseInt(process.env.SCALP_LEVERAGE || '15'),
+  scalpHedgeLeverage: parseInt(process.env.SCALP_HEDGE_LEVERAGE || '18'),
 };
 
 export const technicalConfig: TechnicalConfig = {
@@ -38,7 +43,7 @@ export const technicalConfig: TechnicalConfig = {
   emaFast: parseInt(process.env.EMA_FAST || '9'),
   emaSlow: parseInt(process.env.EMA_SLOW || '18'),
   volumePeriod: parseInt(process.env.VOLUME_PERIOD || '20'),
-  volumeMultiplier: parseFloat(process.env.VOLUME_MULTIPLIER || '1.5'),
+  volumeMultiplier: parseFloat(process.env.VOLUME_MULTIPLIER || '0.1'), // Set to 0.1 to allow trading in very low-volume markets
 };
 
 export const supportResistanceLevels: SupportResistanceLevels = {

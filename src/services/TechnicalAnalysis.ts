@@ -57,10 +57,24 @@ export class TechnicalAnalysis {
    */
   calculateVolumeSMA(volumes: number[]): number {
     try {
+      logger.info('🔍 Volume SMA Calculation Debug', {
+        volumesLength: volumes.length,
+        volumePeriod: this.config.volumePeriod,
+        lastFewVolumes: volumes.slice(-5).map(v => v.toFixed(2)),
+        allVolumesValid: volumes.every(v => !isNaN(v) && v > 0)
+      });
+      
       const sma = SMA.calculate({
         values: volumes,
         period: this.config.volumePeriod
       });
+      
+      logger.info('🔍 Volume SMA Result', {
+        smaLength: sma.length,
+        lastSma: sma[sma.length - 1]?.toFixed(2),
+        lastVolume: volumes[volumes.length - 1]?.toFixed(2)
+      });
+      
       const lastSma = sma[sma.length - 1];
       const lastVolume = volumes[volumes.length - 1];
       return lastSma ?? lastVolume ?? 0;
@@ -108,6 +122,15 @@ export class TechnicalAnalysis {
     const volumeSma = this.calculateVolumeSMA(volumes);
     const lastVolume = volumes[volumes.length - 1] ?? 0;
     const volumeRatio = this.calculateVolumeRatio(lastVolume, volumeSma);
+    
+    // Debug logging for volume analysis
+    logger.info('🔍 Volume Calculation Debug', {
+      lastVolume: lastVolume.toFixed(2),
+      volumeSma: volumeSma.toFixed(2),
+      volumeRatio: volumeRatio.toFixed(2),
+      volumesLength: volumes.length,
+      lastFewVolumes: volumes.slice(-3).map(v => v.toFixed(2))
+    });
     const trend = this.determineTrend(emaFast, emaSlow);
 
     return {
@@ -124,14 +147,21 @@ export class TechnicalAnalysis {
    * Check if volume is above threshold
    */
   isVolumeAboveThreshold(volumeRatio: number): boolean {
-    return volumeRatio >= this.config.volumeMultiplier;
+    const result = volumeRatio >= this.config.volumeMultiplier;
+    logger.info('🔍 Volume Threshold Check', {
+      volumeRatio: volumeRatio.toFixed(2),
+      volumeMultiplier: this.config.volumeMultiplier,
+      result
+    });
+    return result;
   }
 
   /**
    * Check if RSI is in valid range for trading
+   * Expanded range for hedged strategy - more opportunities
    */
   isRSIInValidRange(rsi: number): boolean {
-    return rsi >= 30 && rsi <= 70;
+    return rsi >= 25 && rsi <= 75; // Expanded from 30-70 to 25-75 for more opportunities
   }
 
   /**

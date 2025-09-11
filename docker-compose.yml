@@ -8,6 +8,12 @@ services:
       - /app/node_modules  # Prevent overwriting node_modules
     environment:
       - NODE_ENV=production
+      - VOLUME_MULTIPLIER=0.1
+      - ANCHOR_LEVERAGE=10
+      - HEDGE_LEVERAGE=25
+      - OPPORTUNITY_LEVERAGE=10
+      - SCALP_LEVERAGE=15
+      - SCALP_HEDGE_LEVERAGE=25
     command: sh -c "npm install --omit=dev && npm run start"
     restart: unless-stopped
     networks:
