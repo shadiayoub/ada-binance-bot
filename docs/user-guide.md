@@ -323,6 +323,31 @@ HISTORICAL_1H_DAYS=14
 - **If SCALP_HEDGE (SHORT) exists** → **NO ANCHOR_HEDGE (SHORT) allowed**
 - **Peak positions are safe** because they're opposite direction to profitable positions
 
+#### **Expected Behavior Examples:**
+
+**Scenario 1: ANCHOR First**
+```
+1. ANCHOR (LONG) opens → Position size: 20% of balance ($200)
+2. SCALP signal → BLOCKED (already have LONG position)
+3. ANCHOR_HEDGE (SHORT) opens when conditions met
+4. SCALP_HEDGE signal → BLOCKED (already have SHORT position)
+```
+
+**Scenario 2: SCALP First**
+```
+1. SCALP (LONG) opens → Position size: 10% of balance ($100)
+2. ANCHOR signal → BLOCKED (already have LONG position)
+3. SCALP_HEDGE (SHORT) opens when conditions met
+4. ANCHOR_HEDGE signal → BLOCKED (already have SHORT position)
+```
+
+**Scenario 3: Position Completion**
+```
+1. ANCHOR (LONG) closes → LONG side now available
+2. SCALP signal → ALLOWED (no LONG position exists)
+3. SCALP (LONG) opens → Position size: 10% of balance ($100)
+```
+
 ### **Precise Trading Logic**
 
 The bot follows this exact sequence with **complete bidirectional capabilities** and **side-based isolation**:
@@ -1603,6 +1628,36 @@ Your Binance account must be set to **HEDGE MODE**:
 - Check that you're using the latest bot version
 - Ensure the bot is properly restarted after Hedge Mode change
 
+**Multiple Position Bug (CRITICAL) - FIXED!**
+```
+Issue: Position sizes fluctuating from $200 → $303 → $505
+Root Cause: Multiple positions of same side being merged by Binance
+```
+**✅ SOLUTION IMPLEMENTED**: Side-based position management prevents multiple positions of the same side:
+
+#### **What Was Fixed:**
+- **✅ Side-based validation** instead of type-based validation
+- **✅ Only ONE LONG position** allowed at any time (ANCHOR OR SCALP OR OPPORTUNITY)
+- **✅ Only ONE SHORT position** allowed at any time (corresponding hedge)
+- **✅ Position merging prevention** on Binance
+- **✅ Consistent position sizes** without fluctuations
+
+#### **Expected Results After Fix:**
+```
+✅ Cannot open SCALP position - already have LONG position: {
+  existingPositions: [{ type: "ANCHOR", side: "LONG", id: "123" }]
+}
+
+✅ Cannot open ANCHOR_HEDGE - already have SHORT position: {
+  existingPositions: [{ type: "SCALP_HEDGE", side: "SHORT", id: "456" }]
+}
+```
+
+#### **Position Size Explanation:**
+- **Before**: Multiple LONG positions merged → $200 × 2-3 = $400-600 total exposure
+- **After**: Only ONE LONG position → Consistent $200 (20% of balance) per position
+- **No more fluctuations**: Position sizes remain stable and predictable
+
 **Precision Errors**
 ```
 Error: Precision is over the maximum defined for this asset. {"code":-1111}
@@ -1809,6 +1864,12 @@ Your ADA Futures Trading Bot now includes:
 
 ### **🚀 Latest Updates (Current Version)**
 
+#### **✅ Side-Based Position Management Fix (CRITICAL)**
+- **Fixed**: Multiple positions of same side being merged by Binance
+- **Result**: Consistent position sizes, no more $200 → $303 → $505 fluctuations
+- **Logic**: Only ONE LONG and ONE SHORT position allowed at any time
+- **Prevention**: Position merging eliminated through side-based validation
+
 #### **✅ Position Side Parameter Fix**
 - **Fixed**: All order operations now include `positionSide` parameter
 - **Result**: No more -4061 errors when using Hedge Mode
@@ -1823,9 +1884,11 @@ Your ADA Futures Trading Bot now includes:
 - **New Logs**: `🔍 Checking hedge conditions for ANCHOR position`
 - **Dynamic Levels**: `🔍 Dynamic hedge check for LONG ANCHOR`
 - **Evaluation Results**: `🔍 Hedge evaluation result`
+- **Side Validation**: `Cannot open [TYPE] position - already have [SIDE] position`
 
 #### **✅ Improved Troubleshooting**
 - **Updated**: Position side error solutions
+- **Added**: Multiple position bug solutions
 - **Added**: Hedge condition monitoring guidance
 - **Enhanced**: Real-time monitoring commands
 
