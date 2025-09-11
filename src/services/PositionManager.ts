@@ -44,7 +44,12 @@ export class PositionManager {
     try {
       switch (signal.type) {
         case 'ENTRY':
-          return await this.openAnchorPosition(signal);
+          // Determine if this is a scalp signal or anchor signal
+          if (signal.reason && signal.reason.includes('scalp')) {
+            return await this.openScalpPosition(signal);
+          } else {
+            return await this.openAnchorPosition(signal);
+          }
         case 'HEDGE':
           return await this.openHedgePosition(signal);
         case 'RE_ENTRY':
@@ -66,6 +71,14 @@ export class PositionManager {
    */
   private async openAnchorPosition(signal: TradingSignal): Promise<Position | null> {
     try {
+      // Check if we already have an ANCHOR position
+      if (!this.canOpenPosition('ANCHOR')) {
+        logger.warn('Cannot open ANCHOR position - already exists', {
+          existingPositions: this.currentPositions.filter(p => p.type === 'ANCHOR' && p.status === 'OPEN')
+        });
+        return null;
+      }
+
       const position = await this.binanceService.openPosition(
         signal.position,
         this.positionSizing.anchorPositionSize,
@@ -84,6 +97,36 @@ export class PositionManager {
   }
 
   /**
+   * Open scalp position
+   */
+  private async openScalpPosition(signal: TradingSignal): Promise<Position | null> {
+    try {
+      // Check if we already have a SCALP position
+      if (!this.canOpenPosition('SCALP')) {
+        logger.warn('Cannot open SCALP position - already exists', {
+          existingPositions: this.currentPositions.filter(p => p.type === 'SCALP' && p.status === 'OPEN')
+        });
+        return null;
+      }
+
+      const position = await this.binanceService.openPosition(
+        signal.position,
+        this.positionSizing.scalpPositionSize,
+        this.leverageSettings.scalpLeverage
+      );
+
+      position.type = 'SCALP';
+      this.currentPositions.push(position);
+      
+      logger.info('Scalp position opened', position);
+      return position;
+    } catch (error) {
+      logger.error('Failed to open scalp position', error);
+      return null;
+    }
+  }
+
+  /**
    * Open hedge position
    */
   private async openHedgePosition(signal: TradingSignal): Promise<Position | null> {
@@ -91,15 +134,16 @@ export class PositionManager {
       // Determine hedge type based on existing positions
       const hasAnchorPosition = this.currentPositions.some(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
       const hasOpportunityPosition = this.currentPositions.some(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
+      const hasScalpPosition = this.currentPositions.some(pos => pos.type === 'SCALP' && pos.status === 'OPEN');
       
       let positionSize: number;
       let leverage: number;
-      let positionType: 'ANCHOR_HEDGE' | 'OPPORTUNITY_HEDGE';
+      let positionType: 'ANCHOR_HEDGE' | 'OPPORTUNITY_HEDGE' | 'SCALP_HEDGE';
       let takeProfitPrice: number | null = null;
 
       if (hasAnchorPosition && !this.currentPositions.some(pos => pos.type === 'ANCHOR_HEDGE' && pos.status === 'OPEN')) {
         positionSize = this.positionSizing.anchorHedgeSize; // 30%
-        leverage = this.leverageSettings.hedgeLeverage; // 15x
+        leverage = this.leverageSettings.hedgeLeverage; // 25x
         positionType = 'ANCHOR_HEDGE';
         
         // Calculate take profit at anchor liquidation price
@@ -109,13 +153,23 @@ export class PositionManager {
         }
       } else if (hasOpportunityPosition && !this.currentPositions.some(pos => pos.type === 'OPPORTUNITY_HEDGE' && pos.status === 'OPEN')) {
         positionSize = this.positionSizing.opportunityHedgeSize; // 30%
-        leverage = this.leverageSettings.hedgeLeverage; // 15x
+        leverage = this.leverageSettings.hedgeLeverage; // 25x
         positionType = 'OPPORTUNITY_HEDGE';
         
         // Calculate take profit at opportunity liquidation price
         const opportunityPosition = this.currentPositions.find(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
         if (opportunityPosition) {
           takeProfitPrice = this.calculateLiquidationPrice(opportunityPosition);
+        }
+      } else if (hasScalpPosition && !this.currentPositions.some(pos => pos.type === 'SCALP_HEDGE' && pos.status === 'OPEN')) {
+        positionSize = this.positionSizing.scalpHedgeSize; // 10%
+        leverage = this.leverageSettings.scalpHedgeLeverage; // 25x
+        positionType = 'SCALP_HEDGE';
+        
+        // Calculate take profit at scalp liquidation price
+        const scalpPosition = this.currentPositions.find(pos => pos.type === 'SCALP' && pos.status === 'OPEN');
+        if (scalpPosition) {
+          takeProfitPrice = this.calculateLiquidationPrice(scalpPosition);
         }
       } else {
         logger.warn('No valid position to hedge', { signal });
@@ -254,14 +308,14 @@ export class PositionManager {
     if (signal.position === 'SHORT') {
       // Close SHORT hedge positions
       return this.currentPositions.find(pos => 
-        (pos.type === 'ANCHOR_HEDGE' || pos.type === 'OPPORTUNITY_HEDGE') && 
+        (pos.type === 'ANCHOR_HEDGE' || pos.type === 'OPPORTUNITY_HEDGE' || pos.type === 'SCALP_HEDGE') && 
         pos.side === 'SHORT' &&
         pos.status === 'OPEN'
       ) || null;
     } else if (signal.position === 'LONG') {
-      // Close LONG anchor or opportunity positions
+      // Close LONG anchor, opportunity, or scalp positions
       return this.currentPositions.find(pos => 
-        (pos.type === 'ANCHOR' || pos.type === 'OPPORTUNITY') && 
+        (pos.type === 'ANCHOR' || pos.type === 'OPPORTUNITY' || pos.type === 'SCALP') && 
         pos.side === 'LONG' &&
         pos.status === 'OPEN'
       ) || null;
@@ -362,30 +416,72 @@ export class PositionManager {
   }
 
   /**
-   * Check if we can open a new position
+   * Check if we can open a new position based on SIDE (not type)
+   * Only one LONG and one SHORT position can exist at a time
    */
-  canOpenPosition(type: 'ANCHOR' | 'OPPORTUNITY'): boolean {
-    switch (type) {
-      case 'ANCHOR':
-        return !this.currentPositions.some(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
-      case 'OPPORTUNITY':
-        return !this.currentPositions.some(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
-      default:
-        return false;
+  canOpenPosition(type: 'ANCHOR' | 'OPPORTUNITY' | 'SCALP'): boolean {
+    // Determine the side this position type will be
+    const side = this.getPositionSide(type);
+    
+    // Check if we already have a position of this side
+    const hasPositionOfSameSide = this.currentPositions.some(pos => 
+      pos.side === side && pos.status === 'OPEN'
+    );
+    
+    if (hasPositionOfSameSide) {
+      logger.warn(`Cannot open ${type} position - already have ${side} position`, {
+        existingPositions: this.currentPositions.filter(p => p.side === side && p.status === 'OPEN').map(p => ({
+          type: p.type,
+          side: p.side,
+          id: p.id
+        }))
+      });
+      return false;
     }
+    
+    return true;
   }
 
   /**
-   * Check if we can open a hedge
+   * Get the side (LONG/SHORT) for a position type
    */
-  canOpenHedge(type: 'ANCHOR_HEDGE' | 'OPPORTUNITY_HEDGE'): boolean {
+  private getPositionSide(type: 'ANCHOR' | 'OPPORTUNITY' | 'SCALP'): 'LONG' | 'SHORT' {
+    // All primary positions (ANCHOR, OPPORTUNITY, SCALP) are LONG
+    return 'LONG';
+  }
+
+  /**
+   * Check if we can open a hedge based on SIDE (not type)
+   * Only one LONG and one SHORT position can exist at a time
+   */
+  canOpenHedge(type: 'ANCHOR_HEDGE' | 'OPPORTUNITY_HEDGE' | 'SCALP_HEDGE'): boolean {
+    // All hedge positions are SHORT
+    const hedgeSide = 'SHORT';
+    
+    // Check if we already have a SHORT position
+    const hasShortPosition = this.currentPositions.some(pos => 
+      pos.side === hedgeSide && pos.status === 'OPEN'
+    );
+    
+    if (hasShortPosition) {
+      logger.warn(`Cannot open ${type} hedge - already have ${hedgeSide} position`, {
+        existingPositions: this.currentPositions.filter(p => p.side === hedgeSide && p.status === 'OPEN').map(p => ({
+          type: p.type,
+          side: p.side,
+          id: p.id
+        }))
+      });
+      return false;
+    }
+    
+    // Check if we have the corresponding LONG position to hedge
     switch (type) {
       case 'ANCHOR_HEDGE':
-        return this.currentPositions.some(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN') &&
-               !this.currentPositions.some(pos => pos.type === 'ANCHOR_HEDGE' && pos.status === 'OPEN');
+        return this.currentPositions.some(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
       case 'OPPORTUNITY_HEDGE':
-        return this.currentPositions.some(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN') &&
-               !this.currentPositions.some(pos => pos.type === 'OPPORTUNITY_HEDGE' && pos.status === 'OPEN');
+        return this.currentPositions.some(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
+      case 'SCALP_HEDGE':
+        return this.currentPositions.some(pos => pos.type === 'SCALP' && pos.status === 'OPEN');
       default:
         return false;
     }

@@ -306,19 +306,38 @@ HISTORICAL_1H_DAYS=14
 
 ## 🎯 **Trading Strategy (Complete Bidirectional System)**
 
+### **🔒 CRITICAL: Side-Based Position Management (Latest Fix)**
+
+**⚠️ IMPORTANT**: The bot now enforces **true isolated mode** based on position sides, not position types. This prevents multiple positions of the same side from being merged by Binance.
+
+#### **Position Side Rules:**
+- **Only ONE LONG position** can exist at any time (ANCHOR OR SCALP OR OPPORTUNITY)
+- **Only ONE SHORT position** can exist at any time (corresponding hedge)
+- **No position merging** on Binance due to side conflicts
+- **Consistent position sizes** without fluctuations
+
+#### **Position Priority Logic:**
+- **If ANCHOR (LONG) exists** → **NO SCALP (LONG) allowed**
+- **If SCALP (LONG) exists** → **NO ANCHOR (LONG) allowed**
+- **If ANCHOR_HEDGE (SHORT) exists** → **NO SCALP_HEDGE (SHORT) allowed**
+- **If SCALP_HEDGE (SHORT) exists** → **NO ANCHOR_HEDGE (SHORT) allowed**
+- **Peak positions are safe** because they're opposite direction to profitable positions
+
 ### **Precise Trading Logic**
 
-The bot follows this exact sequence with **complete bidirectional capabilities**:
+The bot follows this exact sequence with **complete bidirectional capabilities** and **side-based isolation**:
 
 #### **1. Anchor Open (Bidirectional)**
 - **Bull Market**: Price breaks resistance level with volume confirmation
   - **Action**: Open LONG position (20% × 10x leverage)
   - **Conditions**: RSI 30-70, 4H trend bullish/sideways, volume ≥ 0.1x average
   - **Level System**: Uses comprehensive levels for consistent entry signals
+  - **Side Check**: Only if no other LONG position exists
 - **Bear Market**: Price breaks support level with volume confirmation
   - **Action**: Open SHORT position (20% × 10x leverage)
   - **Conditions**: RSI 30-70, 4H trend bearish/sideways, volume ≥ 0.1x average
   - **Level System**: Uses comprehensive levels for consistent entry signals
+  - **Side Check**: Only if no other SHORT position exists
 
 #### **2. Liquidation-Based Hedge Strategy (Revolutionary!)**
 - **For LONG Anchor**: Price drops below first support level

@@ -49,7 +49,7 @@ export interface Position {
   id: string;
   symbol: string;
   side: 'LONG' | 'SHORT';
-  type: 'ANCHOR' | 'ANCHOR_HEDGE' | 'OPPORTUNITY' | 'OPPORTUNITY_HEDGE';
+  type: 'ANCHOR' | 'ANCHOR_HEDGE' | 'OPPORTUNITY' | 'OPPORTUNITY_HEDGE' | 'SCALP' | 'SCALP_HEDGE';
   size: number;
   entryPrice: number;
   leverage: number;
