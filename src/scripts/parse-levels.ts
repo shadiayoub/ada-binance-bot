@@ -2,6 +2,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { BinanceService } from '../services/BinanceService';
+import { tradingConfig } from '../config';
 
 interface LevelData {
   description: string;
@@ -11,13 +13,18 @@ interface LevelData {
   category: string;
 }
 
-function parseCSVLevels(): LevelData[] {
+async function parseCSVLevels(): Promise<LevelData[]> {
   const csvPath = path.join(__dirname, '../../docs/ADAUSD_сheat-sheet-09_08_2025.csv');
   const csvContent = fs.readFileSync(csvPath, 'utf-8');
   const lines = csvContent.split('\n');
   
   const levels: LevelData[] = [];
-  const currentPrice = 0.866985; // Last price from CSV
+  
+  // Get real-time current price
+  const binanceService = new BinanceService(tradingConfig);
+  await binanceService.initialize();
+  const currentPrice = await binanceService.getCurrentPrice();
+  binanceService.cleanup();
   
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i]?.trim();
@@ -158,10 +165,19 @@ function generateConfig(levels: LevelData[]): void {
   console.log(`Medium Importance: ${levels.filter(l => l.importance === 'MEDIUM').length}`);
   console.log(`Low Importance: ${levels.filter(l => l.importance === 'LOW').length}`);
   
-  console.log('\n💰 CURRENT ADA PRICE: $0.866985');
+  console.log(`\n💰 CURRENT ADA PRICE: $${currentPrice.toFixed(6)} (Real-time)`);
   console.log('🎯 Bot will use these levels for bidirectional trading decisions');
 }
 
 // Run the parser
-const levels = parseCSVLevels();
-generateConfig(levels);
+async function main() {
+  try {
+    const levels = await parseCSVLevels();
+    generateConfig(levels);
+  } catch (error) {
+    console.error('❌ Error parsing levels:', error);
+    process.exit(1);
+  }
+}
+
+main();

@@ -44,9 +44,11 @@ export class PositionManager {
     try {
       switch (signal.type) {
         case 'ENTRY':
-          // Determine if this is a scalp signal or anchor signal
+          // Determine position type based on signal reason
           if (signal.reason && signal.reason.includes('scalp')) {
             return await this.openScalpPosition(signal);
+          } else if (signal.reason && signal.reason.includes('Peak')) {
+            return await this.openOpportunityPosition(signal);
           } else {
             return await this.openAnchorPosition(signal);
           }
@@ -416,29 +418,39 @@ export class PositionManager {
   }
 
   /**
-   * Check if we can open a new position based on SIDE (not type)
-   * Only one LONG and one SHORT position can exist at a time
+   * Check if we can open a new position based on SEQUENTIAL CYCLES
+   * Only one position type (ANCHOR, PEAK, or SCALP) can be active at a time
+   * New position types can only open when the current cycle is complete
    */
   canOpenPosition(type: 'ANCHOR' | 'OPPORTUNITY' | 'SCALP'): boolean {
-    // Determine the side this position type will be
-    const side = this.getPositionSide(type);
+    // Check if we have any open positions of any type
+    const hasAnyOpenPositions = this.currentPositions.some(pos => pos.status === 'OPEN');
     
-    // Check if we already have a position of this side
-    const hasPositionOfSameSide = this.currentPositions.some(pos => 
-      pos.side === side && pos.status === 'OPEN'
-    );
-    
-    if (hasPositionOfSameSide) {
-      logger.warn(`Cannot open ${type} position - already have ${side} position`, {
-        existingPositions: this.currentPositions.filter(p => p.side === side && p.status === 'OPEN').map(p => ({
+    if (hasAnyOpenPositions) {
+      // Get the current active position type
+      const activePosition = this.currentPositions.find(pos => pos.status === 'OPEN');
+      const activeType = activePosition?.type;
+      
+      logger.warn(`Cannot open ${type} position - ${activeType} cycle is still active`, {
+        activePosition: activePosition ? {
+          type: activePosition.type,
+          side: activePosition.side,
+          id: activePosition.id,
+          status: activePosition.status
+        } : null,
+        allOpenPositions: this.currentPositions.filter(p => p.status === 'OPEN').map(p => ({
           type: p.type,
           side: p.side,
           id: p.id
-        }))
+        })),
+        reason: 'Sequential position management - only one position type at a time'
       });
       return false;
     }
     
+    logger.info(`✅ Can open ${type} position - no active position cycles`, {
+      reason: 'Sequential position management - ready for new cycle'
+    });
     return true;
   }
 

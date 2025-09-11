@@ -1,20 +1,29 @@
 #!/usr/bin/env node
 
 import { ComprehensiveLevels } from '../services/ComprehensiveLevels';
+import { BinanceService } from '../services/BinanceService';
+import { tradingConfig } from '../config';
 import { logger } from '../utils/logger';
 
 async function showComprehensiveLevels() {
+  let binanceService: BinanceService | null = null;
+  
   try {
     console.log('🌍 COMPREHENSIVE MULTI-ZONE SUPPORT/RESISTANCE SYSTEM');
     console.log('=====================================================\n');
 
+    // Initialize Binance service for real-time price
+    binanceService = new BinanceService(tradingConfig);
+    await binanceService.initialize();
+    
+    // Get real-time current price
+    const currentPrice = await binanceService.getCurrentPrice();
+    console.log(`💰 CURRENT ADA PRICE: $${currentPrice.toFixed(4)} (Real-time)\n`);
+
     const comprehensiveLevels = new ComprehensiveLevels();
-    const currentPrice = 0.866985; // Current ADA price
 
     // Get trading signals for current price
     const signals = comprehensiveLevels.getTradingSignals(currentPrice);
-
-    console.log(`💰 CURRENT ADA PRICE: $${currentPrice.toFixed(4)}\n`);
 
     // Display current zone information
     if (signals.currentZone) {
@@ -163,6 +172,11 @@ async function showComprehensiveLevels() {
 
   } catch (error) {
     logger.error('Error showing comprehensive levels', error);
+  } finally {
+    // Cleanup Binance service resources
+    if (binanceService) {
+      binanceService.cleanup();
+    }
   }
 }
 

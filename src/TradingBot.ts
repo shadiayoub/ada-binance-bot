@@ -258,13 +258,14 @@ export class TradingBot {
   private canExecuteSignal(signal: TradingSignal): boolean {
     switch (signal.type) {
       case 'ENTRY':
-        // Check if this is a scalp signal (has scalp-specific reason)
+        // Determine position type based on signal reason
         if (signal.reason && signal.reason.includes('scalp')) {
-          // Scalp entries are independent and can run alongside anchor/opportunity
           return this.positionManager.canOpenPosition('SCALP');
+        } else if (signal.reason && signal.reason.includes('Peak')) {
+          return this.positionManager.canOpenPosition('OPPORTUNITY');
+        } else {
+          return this.positionManager.canOpenPosition('ANCHOR');
         }
-        // Regular anchor entries - enforce isolated mode
-        return this.positionManager.canOpenPosition('ANCHOR');
       case 'HEDGE':
         return this.positionManager.canOpenHedge('ANCHOR_HEDGE') || 
                this.positionManager.canOpenHedge('OPPORTUNITY_HEDGE') ||

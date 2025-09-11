@@ -306,63 +306,69 @@ HISTORICAL_1H_DAYS=14
 
 ## 🎯 **Trading Strategy (Complete Bidirectional System)**
 
-### **🔒 CRITICAL: Side-Based Position Management (Latest Fix)**
+### **🔄 CRITICAL: Sequential Position Management (Latest Update)**
 
-**⚠️ IMPORTANT**: The bot now enforces **true isolated mode** based on position sides, not position types. This prevents multiple positions of the same side from being merged by Binance.
+**⚠️ IMPORTANT**: The bot now enforces **sequential position cycles** where only **one position type at a time** can be active. This ensures complete focus on each strategy until its cycle is finished.
 
-#### **Position Side Rules:**
-- **Only ONE LONG position** can exist at any time (ANCHOR OR SCALP OR OPPORTUNITY)
-- **Only ONE SHORT position** can exist at any time (corresponding hedge)
-- **No position merging** on Binance due to side conflicts
-- **Consistent position sizes** without fluctuations
+#### **Sequential Position Rules:**
+- **Only ONE position type** can be active at any time (ANCHOR OR PEAK OR SCALP)
+- **Complete cycle required** before new position type can open
+- **Cycle completion** means ALL positions of that type are closed (position + hedge)
+- **No overlapping strategies** - clean, focused trading approach
 
-#### **Position Priority Logic:**
-- **If ANCHOR (LONG) exists** → **NO SCALP (LONG) allowed**
-- **If SCALP (LONG) exists** → **NO ANCHOR (LONG) allowed**
-- **If ANCHOR_HEDGE (SHORT) exists** → **NO SCALP_HEDGE (SHORT) allowed**
-- **If SCALP_HEDGE (SHORT) exists** → **NO ANCHOR_HEDGE (SHORT) allowed**
-- **Peak positions are safe** because they're opposite direction to profitable positions
+#### **Position Cycle Logic:**
+- **ANCHOR Cycle**: ANCHOR position + ANCHOR_HEDGE position (both must be closed)
+- **PEAK Cycle**: PEAK position + PEAK_HEDGE position (both must be closed)
+- **SCALP Cycle**: SCALP position + SCALP_HEDGE position (both must be closed)
+- **New cycles** can only start when current cycle is completely finished
 
 #### **Expected Behavior Examples:**
 
-**Scenario 1: ANCHOR First**
+**Scenario 1: ANCHOR Cycle Active**
 ```
-1. ANCHOR (LONG) opens → Position size: 20% of balance ($200)
-2. SCALP signal → BLOCKED (already have LONG position)
-3. ANCHOR_HEDGE (SHORT) opens when conditions met
-4. SCALP_HEDGE signal → BLOCKED (already have SHORT position)
-```
-
-**Scenario 2: SCALP First**
-```
-1. SCALP (LONG) opens → Position size: 10% of balance ($100)
-2. ANCHOR signal → BLOCKED (already have LONG position)
-3. SCALP_HEDGE (SHORT) opens when conditions met
-4. ANCHOR_HEDGE signal → BLOCKED (already have SHORT position)
+1. ANCHOR (LONG) opens → ANCHOR cycle begins
+2. PEAK signal → BLOCKED (ANCHOR cycle still active)
+3. SCALP signal → BLOCKED (ANCHOR cycle still active)
+4. ANCHOR_HEDGE (SHORT) opens → ANCHOR cycle continues
+5. Both positions close → ANCHOR cycle complete
+6. New signals → ALLOWED (ready for new cycle)
 ```
 
-**Scenario 3: Position Completion**
+**Scenario 2: PEAK Cycle Active**
 ```
-1. ANCHOR (LONG) closes → LONG side now available
-2. SCALP signal → ALLOWED (no LONG position exists)
-3. SCALP (LONG) opens → Position size: 10% of balance ($100)
+1. PEAK (LONG) opens → PEAK cycle begins
+2. ANCHOR signal → BLOCKED (PEAK cycle still active)
+3. SCALP signal → BLOCKED (PEAK cycle still active)
+4. PEAK_HEDGE (SHORT) opens → PEAK cycle continues
+5. Both positions close → PEAK cycle complete
+6. New signals → ALLOWED (ready for new cycle)
+```
+
+**Scenario 3: SCALP Cycle Active**
+```
+1. SCALP (LONG) opens → SCALP cycle begins
+2. ANCHOR signal → BLOCKED (SCALP cycle still active)
+3. PEAK signal → BLOCKED (SCALP cycle still active)
+4. SCALP_HEDGE (SHORT) opens → SCALP cycle continues
+5. Both positions close → SCALP cycle complete
+6. New signals → ALLOWED (ready for new cycle)
 ```
 
 ### **Precise Trading Logic**
 
-The bot follows this exact sequence with **complete bidirectional capabilities** and **side-based isolation**:
+The bot follows this exact sequence with **complete bidirectional capabilities** and **sequential position management**:
 
 #### **1. Anchor Open (Bidirectional)**
 - **Bull Market**: Price breaks resistance level with volume confirmation
   - **Action**: Open LONG position (20% × 10x leverage)
   - **Conditions**: RSI 30-70, 4H trend bullish/sideways, volume ≥ 0.1x average
   - **Level System**: Uses comprehensive levels for consistent entry signals
-  - **Side Check**: Only if no other LONG position exists
+  - **Cycle Check**: Only if no other position type is active
 - **Bear Market**: Price breaks support level with volume confirmation
   - **Action**: Open SHORT position (20% × 10x leverage)
   - **Conditions**: RSI 30-70, 4H trend bearish/sideways, volume ≥ 0.1x average
   - **Level System**: Uses comprehensive levels for consistent entry signals
-  - **Side Check**: Only if no other SHORT position exists
+  - **Cycle Check**: Only if no other position type is active
 
 #### **2. Liquidation-Based Hedge Strategy (Revolutionary!)**
 - **For LONG Anchor**: Price drops below first support level
@@ -476,31 +482,31 @@ shouldHedgeOpportunity()             // = Peak hedge protection
 
 ### **🛡️ Safety-First Design**
 
-#### **Profit Requirement Safety Rule**
-- **🛡️ CRITICAL**: Peak positions **only open when existing position is profitable**
-- **No Additional Risk**: Never compounds losses, only profits
-- **Prevents Revenge Trading**: Blocks entries during losing periods
-- **Capital Preservation**: Maintains capital for recovery
+#### **Sequential Position Management**
+- **🛡️ CRITICAL**: Peak positions **only open when no other position type is active**
+- **Complete Focus**: Each strategy gets full attention until cycle completion
+- **No Overlapping Risk**: Prevents multiple strategies from conflicting
+- **Clean Execution**: One position type at a time for optimal performance
 
 ```typescript
-// Safety Rule Implementation
-const currentProfit = this.calculateProfitPercentage(anchorPosition, currentPrice);
-if (currentProfit <= 0) {
-  logger.info('🚫 Peak Strategy Blocked: Existing position not profitable');
-  return false; // Block Peak if not profitable
+// Sequential Rule Implementation
+const hasAnyOpenPositions = this.currentPositions.some(pos => pos.status === 'OPEN');
+if (hasAnyOpenPositions) {
+  logger.info('🚫 Peak Strategy Blocked: Another position cycle is active');
+  return false; // Block Peak if any position type is active
 }
 ```
 
 ### **🎯 Bidirectional Peak Detection**
 
 #### **Market Peak Detection (SHORT Peak Positions)**
-- **Trigger**: When LONG anchor is profitable AND market has peaked
+- **Trigger**: When no other position type is active AND market has peaked
 - **Pattern**: Price went up → peaked → started declining
 - **Confirmation**: RSI overbought (>70) + volume decreasing + 0.3% decline
 - **Action**: Open SHORT Peak position to catch the decline
 
 #### **Market Trough Detection (LONG Peak Positions)**
-- **Trigger**: When SHORT anchor is profitable AND market has troughed
+- **Trigger**: When no other position type is active AND market has troughed
 - **Pattern**: Price went down → bottomed → started rising
 - **Confirmation**: RSI oversold (<30) + volume increasing + 0.3% rise
 - **Action**: Open LONG Peak position to catch the rise
@@ -530,24 +536,28 @@ const isTrough = second.price < first.price &&
 
 ### **🎯 Peak Strategy Scenarios**
 
-#### **Scenario 1: LONG Anchor → SHORT Peak**
+#### **Scenario 1: ANCHOR Cycle → PEAK Cycle**
 ```
-1. LONG Entry: 0.8838 (Anchor position)
-2. Price Rises: 0.8947 (Anchor profitable: +1.23%)
-3. Peak Detected: Market peaked and declining
-4. SHORT Entry: 0.8947 (Peak position)
-5. Price Falls: 0.8800 (Both positions profitable)
-6. Result: LONG profit + SHORT profit = Double profit! 🚀
+1. ANCHOR (LONG) Entry: 0.8838 → ANCHOR cycle begins
+2. ANCHOR_HEDGE (SHORT) opens → ANCHOR cycle continues
+3. Both positions close → ANCHOR cycle complete
+4. Peak Detected: Market peaked and declining
+5. PEAK (SHORT) Entry: 0.8947 → PEAK cycle begins
+6. PEAK_HEDGE (LONG) opens → PEAK cycle continues
+7. Both positions close → PEAK cycle complete
+8. Result: Sequential cycles with focused execution! 🚀
 ```
 
-#### **Scenario 2: SHORT Anchor → LONG Peak**
+#### **Scenario 2: SCALP Cycle → ANCHOR Cycle**
 ```
-1. SHORT Entry: 0.9000 (Anchor position)
-2. Price Falls: 0.8800 (Anchor profitable: +2.22%)
-3. Trough Detected: Market bottomed and rising
-4. LONG Entry: 0.8800 (Peak position)
-5. Price Rises: 0.8900 (Both positions profitable)
-6. Result: SHORT profit + LONG profit = Double profit! 🚀
+1. SCALP (LONG) Entry: 0.8850 → SCALP cycle begins
+2. SCALP_HEDGE (SHORT) opens → SCALP cycle continues
+3. Both positions close → SCALP cycle complete
+4. Resistance Breakout: Market breaks resistance level
+5. ANCHOR (LONG) Entry: 0.9000 → ANCHOR cycle begins
+6. ANCHOR_HEDGE (SHORT) opens → ANCHOR cycle continues
+7. Both positions close → ANCHOR cycle complete
+8. Result: Clean sequential execution with no conflicts! 🚀
 ```
 
 ### **🛡️ Built-in Hedge Protection**
@@ -574,22 +584,22 @@ if (priceAboveEntry && priceRise >= 1%) {
 ### **📈 Peak Strategy Benefits**
 
 #### **1. Risk Management**
-- **Only Compounds Profits**: Never opens during losses
-- **Built-in Protection**: Same hedge logic as Opportunity
-- **Profit Requirement**: Prevents revenge trading
-- **Capital Preservation**: Maintains capital for recovery
+- **Sequential Focus**: Only one position type at a time
+- **Complete Cycles**: Each strategy gets full attention until completion
+- **No Conflicts**: Prevents overlapping strategies from interfering
+- **Capital Preservation**: Clean execution without position merging
 
 #### **2. Profit Maximization**
-- **Catches Reversals**: Instead of just breakouts
-- **Double Profit Potential**: From same price movement
+- **Focused Execution**: Each strategy optimized for its specific market conditions
+- **Complete Coverage**: All market scenarios handled by appropriate strategy
 - **Better Timing**: Peak detection vs random levels
 - **Market Efficiency**: Exploits natural market cycles
 
 #### **3. Strategic Advantage**
-- **Eliminates Redundancy**: Scalp handles high-frequency
-- **Reuses Infrastructure**: Same hedge protection mechanisms
-- **Maintains Safety**: Profit requirement prevents losses
-- **Complete Coverage**: Works in all market conditions
+- **Clean Architecture**: No overlapping position types
+- **Reuses Infrastructure**: Same hedge protection mechanisms across all strategies
+- **Maintains Safety**: Sequential execution prevents conflicts
+- **Complete Coverage**: Works in all market conditions with appropriate strategy
 
 ### **🔧 Peak Strategy Configuration**
 
@@ -667,14 +677,16 @@ info: Position opened: {
 }
 ```
 
-#### **Safety Block Logs**
+#### **Sequential Block Logs**
 ```
-🚫 Peak Strategy Blocked: Existing position not profitable: {
-  position: "LONG",
-  entryPrice: "0.8838",
-  currentPrice: "0.8800",
-  currentProfit: "-0.43%",
-  reason: "Peak positions only open when existing position is in profit"
+🚫 Cannot open PEAK position - ANCHOR cycle is still active: {
+  activePosition: { type: "ANCHOR", side: "LONG", id: "123", status: "OPEN" },
+  allOpenPositions: [{ type: "ANCHOR", side: "LONG", id: "123" }],
+  reason: "Sequential position management - only one position type at a time"
+}
+
+✅ Can open PEAK position - no active position cycles: {
+  reason: "Sequential position management - ready for new cycle"
 }
 ```
 
@@ -1628,35 +1640,37 @@ Your Binance account must be set to **HEDGE MODE**:
 - Check that you're using the latest bot version
 - Ensure the bot is properly restarted after Hedge Mode change
 
-**Multiple Position Bug (CRITICAL) - FIXED!**
+**Sequential Position Management (CRITICAL) - IMPLEMENTED!**
 ```
-Issue: Position sizes fluctuating from $200 → $303 → $505
-Root Cause: Multiple positions of same side being merged by Binance
+Issue: Multiple position types running simultaneously causing conflicts
+Root Cause: Co-existing strategies interfering with each other
 ```
-**✅ SOLUTION IMPLEMENTED**: Side-based position management prevents multiple positions of the same side:
+**✅ SOLUTION IMPLEMENTED**: Sequential position management ensures only one position type at a time:
 
 #### **What Was Fixed:**
-- **✅ Side-based validation** instead of type-based validation
-- **✅ Only ONE LONG position** allowed at any time (ANCHOR OR SCALP OR OPPORTUNITY)
-- **✅ Only ONE SHORT position** allowed at any time (corresponding hedge)
-- **✅ Position merging prevention** on Binance
-- **✅ Consistent position sizes** without fluctuations
+- **✅ Sequential validation** instead of co-existing validation
+- **✅ Only ONE position type** allowed at any time (ANCHOR OR PEAK OR SCALP)
+- **✅ Complete cycle requirement** before new position type can open
+- **✅ No overlapping strategies** - clean, focused execution
+- **✅ Consistent position management** without conflicts
 
 #### **Expected Results After Fix:**
 ```
-✅ Cannot open SCALP position - already have LONG position: {
-  existingPositions: [{ type: "ANCHOR", side: "LONG", id: "123" }]
+✅ Cannot open PEAK position - ANCHOR cycle is still active: {
+  activePosition: { type: "ANCHOR", side: "LONG", id: "123", status: "OPEN" },
+  allOpenPositions: [{ type: "ANCHOR", side: "LONG", id: "123" }],
+  reason: "Sequential position management - only one position type at a time"
 }
 
-✅ Cannot open ANCHOR_HEDGE - already have SHORT position: {
-  existingPositions: [{ type: "SCALP_HEDGE", side: "SHORT", id: "456" }]
+✅ Can open SCALP position - no active position cycles: {
+  reason: "Sequential position management - ready for new cycle"
 }
 ```
 
-#### **Position Size Explanation:**
-- **Before**: Multiple LONG positions merged → $200 × 2-3 = $400-600 total exposure
-- **After**: Only ONE LONG position → Consistent $200 (20% of balance) per position
-- **No more fluctuations**: Position sizes remain stable and predictable
+#### **Position Cycle Explanation:**
+- **Before**: Multiple position types active → Conflicts and interference
+- **After**: Only ONE position type active → Clean, focused execution
+- **Complete cycles**: Each strategy gets full attention until completion
 
 **Precision Errors**
 ```
@@ -1864,11 +1878,11 @@ Your ADA Futures Trading Bot now includes:
 
 ### **🚀 Latest Updates (Current Version)**
 
-#### **✅ Side-Based Position Management Fix (CRITICAL)**
-- **Fixed**: Multiple positions of same side being merged by Binance
-- **Result**: Consistent position sizes, no more $200 → $303 → $505 fluctuations
-- **Logic**: Only ONE LONG and ONE SHORT position allowed at any time
-- **Prevention**: Position merging eliminated through side-based validation
+#### **✅ Sequential Position Management (CRITICAL)**
+- **Implemented**: Only one position type (ANCHOR, PEAK, or SCALP) can be active at a time
+- **Result**: Clean, focused execution with no overlapping strategies
+- **Logic**: Complete position cycles required before new position type can open
+- **Prevention**: Strategy conflicts eliminated through sequential validation
 
 #### **✅ Position Side Parameter Fix**
 - **Fixed**: All order operations now include `positionSide` parameter
@@ -1884,11 +1898,11 @@ Your ADA Futures Trading Bot now includes:
 - **New Logs**: `🔍 Checking hedge conditions for ANCHOR position`
 - **Dynamic Levels**: `🔍 Dynamic hedge check for LONG ANCHOR`
 - **Evaluation Results**: `🔍 Hedge evaluation result`
-- **Side Validation**: `Cannot open [TYPE] position - already have [SIDE] position`
+- **Sequential Validation**: `Cannot open [TYPE] position - [ACTIVE_TYPE] cycle is still active`
 
 #### **✅ Improved Troubleshooting**
 - **Updated**: Position side error solutions
-- **Added**: Multiple position bug solutions
+- **Added**: Sequential position management solutions
 - **Added**: Hedge condition monitoring guidance
 - **Enhanced**: Real-time monitoring commands
 

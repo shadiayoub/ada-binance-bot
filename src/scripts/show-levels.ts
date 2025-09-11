@@ -13,11 +13,13 @@ import { DynamicLevels } from '../services/DynamicLevels';
 import { logger } from '../utils/logger';
 
 async function showCurrentLevels() {
+  let binanceService: BinanceService | null = null;
+  
   try {
     console.log('🔍 Fetching current support/resistance levels...\n');
 
     // Initialize services
-    const binanceService = new BinanceService(tradingConfig);
+    binanceService = new BinanceService(tradingConfig);
     const technicalAnalysis = new TechnicalAnalysis(technicalConfig);
     const dynamicLevels = new DynamicLevels();
 
@@ -75,31 +77,29 @@ async function showCurrentLevels() {
     console.log(`  Resistance Levels: ${levelStats.resistanceLevels}`);
     console.log(`  Average Strength: ${levelStats.averageStrength.toFixed(2)}`);
 
-    // Get current price
-    const currentPrice = marketData1h[marketData1h.length - 1]?.price;
-    if (currentPrice) {
-      console.log(`\n💰 CURRENT ADA PRICE: $${currentPrice.toFixed(4)}`);
-      
-      // Show nearest levels
-      const nearestSupport = supportLevels.length > 0 ? 
-        supportLevels.reduce((nearest, level) => 
-          Math.abs(level.price - currentPrice) < Math.abs(nearest.price - currentPrice) ? level : nearest
-        ) : null;
-      
-      const nearestResistance = resistanceLevels.length > 0 ? 
-        resistanceLevels.reduce((nearest, level) => 
-          Math.abs(level.price - currentPrice) < Math.abs(nearest.price - currentPrice) ? level : nearest
-        ) : null;
+    // Get real-time current price
+    const currentPrice = await binanceService.getCurrentPrice();
+    console.log(`\n💰 CURRENT ADA PRICE: $${currentPrice.toFixed(4)} (Real-time)`);
+    
+    // Show nearest levels
+    const nearestSupport = supportLevels.length > 0 ? 
+      supportLevels.reduce((nearest, level) => 
+        Math.abs(level.price - currentPrice) < Math.abs(nearest.price - currentPrice) ? level : nearest
+      ) : null;
+    
+    const nearestResistance = resistanceLevels.length > 0 ? 
+      resistanceLevels.reduce((nearest, level) => 
+        Math.abs(level.price - currentPrice) < Math.abs(nearest.price - currentPrice) ? level : nearest
+      ) : null;
 
-      if (nearestSupport) {
-        const distance = ((currentPrice - nearestSupport.price) / currentPrice * 100).toFixed(2);
-        console.log(`  Nearest Support: $${nearestSupport.price.toFixed(4)} (${distance}% below)`);
-      }
+    if (nearestSupport) {
+      const distance = ((currentPrice - nearestSupport.price) / currentPrice * 100).toFixed(2);
+      console.log(`  Nearest Support: $${nearestSupport.price.toFixed(4)} (${distance}% below)`);
+    }
 
-      if (nearestResistance) {
-        const distance = ((nearestResistance.price - currentPrice) / currentPrice * 100).toFixed(2);
-        console.log(`  Nearest Resistance: $${nearestResistance.price.toFixed(4)} (${distance}% above)`);
-      }
+    if (nearestResistance) {
+      const distance = ((nearestResistance.price - currentPrice) / currentPrice * 100).toFixed(2);
+      console.log(`  Nearest Resistance: $${nearestResistance.price.toFixed(4)} (${distance}% above)`);
     }
 
     console.log('\n🎯 TRADING SIGNALS:');
@@ -112,6 +112,11 @@ async function showCurrentLevels() {
   } catch (error) {
     console.error('❌ Error fetching levels:', error);
     process.exit(1);
+  } finally {
+    // Cleanup Binance service resources
+    if (binanceService) {
+      binanceService.cleanup();
+    }
   }
 }
 

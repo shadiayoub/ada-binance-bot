@@ -20,6 +20,7 @@ export class ScalpStrategy {
   private positionManager: PositionManager;
   private priceHistory: Map<string, Array<{price: number, timestamp: number}>> = new Map();
   
+  
   // Scalp trade tracking
   private activeScalpTrade: {
     scalpPosition: Position | null;
@@ -55,9 +56,9 @@ export class ScalpStrategy {
    * Check if we can open a scalp position
    */
   canOpenScalpPosition(): boolean {
-    // Scalp positions are independent and can run alongside anchor/opportunity
-    // Only check if there's already an active scalp position
-    return !this.activeScalpTrade.scalpPosition;
+    // Scalp positions now follow sequential position management
+    // Only one position type (ANCHOR, PEAK, or SCALP) can be active at a time
+    return this.positionManager.canOpenPosition('SCALP');
   }
 
   /**
@@ -231,7 +232,7 @@ async executeScalpStrategy(marketData4h: MarketData[], marketData1h: MarketData[
 
     // 🎯 PRIORITY 1: Check if price has returned to original exit target
     const originalTarget = this.getOriginalExitTarget(scalpPosition);
-    if (originalTarget && this.isPriceAtTarget(currentPrice, originalTarget)) {
+    if (originalTarget && this.isPriceAtTarget(currentPrice, originalTarget, scalpPosition)) {
       logger.info('🎯 Target Return Exit: Price returned to original target', {
         position: `SCALP_${scalpPosition.side}`,
         entryPrice: scalpPosition.entryPrice.toFixed(4),
@@ -755,9 +756,39 @@ async executeScalpStrategy(marketData4h: MarketData[], marketData1h: MarketData[
 
   /**
    * Check if current price is at or near the original exit target
+   * FIXED: Exit immediately when target is reached (Option 1)
    */
-  private isPriceAtTarget(currentPrice: number, targetPrice: number): boolean {
+  private isPriceAtTarget(currentPrice: number, targetPrice: number, position: Position): boolean {
     const priceTolerance = 0.003; // 0.3% tolerance for scalp precision
-    return Math.abs(currentPrice - targetPrice) / targetPrice <= priceTolerance;
+    const isNearTarget = Math.abs(currentPrice - targetPrice) / targetPrice <= priceTolerance;
+    
+    if (!isNearTarget) {
+      return false;
+    }
+    
+    // Exit immediately when target is reached
+    if (position.side === 'LONG' && currentPrice >= targetPrice) {
+      logger.info('🎯 Target reached - exiting immediately', {
+        position: `SCALP_${position.side}`,
+        entryPrice: position.entryPrice.toFixed(4),
+        targetPrice: targetPrice.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        reason: 'Price reached target - exiting immediately for guaranteed profit'
+      });
+      return true;
+    }
+    
+    if (position.side === 'SHORT' && currentPrice <= targetPrice) {
+      logger.info('🎯 Target reached - exiting immediately', {
+        position: `SCALP_${position.side}`,
+        entryPrice: position.entryPrice.toFixed(4),
+        targetPrice: targetPrice.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        reason: 'Price reached target - exiting immediately for guaranteed profit'
+      });
+      return true;
+    }
+    
+    return false;
   }
 }

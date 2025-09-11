@@ -24,6 +24,7 @@ export class HedgeStrategy {
   private currentPositions: Position[] = [];
   private useDynamicLevels: boolean = true;
   private priceHistory: Map<string, Array<{price: number, timestamp: number}>> = new Map();
+  
 
   constructor(
     binanceService: BinanceService,
@@ -298,27 +299,28 @@ export class HedgeStrategy {
     // Check if we should open Peak reversal position
     const hasPeakPosition = this.currentPositions.some(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
     if (!hasPeakPosition && this.shouldOpenPeakReversal(currentPrice, indicators4h, indicators1h)) {
-      // Determine peak direction based on anchor side and market detection
-      const anchorPosition = this.currentPositions.find(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
+      // Determine peak direction based on market detection (independent of existing positions)
+      let peakDirection: 'LONG' | 'SHORT' | null = null;
       
-      if (anchorPosition?.side === 'LONG') {
-        // LONG Anchor → SHORT Peak (market peaked)
+      // Detect SHORT peak (market peaked and declining)
+      if (this.detectMarketPeak(currentPrice, indicators1h)) {
+        peakDirection = 'SHORT';
+      }
+      
+      // Detect LONG peak (market bottomed and rising)
+      if (this.detectMarketTrough(currentPrice, indicators1h)) {
+        peakDirection = 'LONG';
+      }
+      
+      if (peakDirection) {
         signals.push({
           type: 'RE_ENTRY',
-          position: 'SHORT',
+          position: peakDirection,
           price: currentPrice,
           confidence: 0.8,
-          reason: 'Peak detected - opening SHORT reversal position to catch decline',
-          timestamp: new Date()
-        });
-      } else if (anchorPosition?.side === 'SHORT') {
-        // SHORT Anchor → LONG Peak (market troughed)
-        signals.push({
-          type: 'RE_ENTRY',
-          position: 'LONG',
-          price: currentPrice,
-          confidence: 0.8,
-          reason: 'Trough detected - opening LONG reversal position to catch rise',
+          reason: peakDirection === 'SHORT' 
+            ? 'Peak detected - opening SHORT reversal position to catch decline'
+            : 'Trough detected - opening LONG reversal position to catch rise',
           timestamp: new Date()
         });
       }
@@ -639,7 +641,7 @@ export class HedgeStrategy {
 
     // 🎯 PRIORITY 1: Check if price has returned to original exit target
     const originalTarget = this.getOriginalExitTarget(anchorPosition);
-    if (originalTarget && this.isPriceAtTarget(currentPrice, originalTarget)) {
+    if (originalTarget && this.isPriceAtTarget(currentPrice, originalTarget, anchorPosition)) {
       logger.info('🎯 Target Return Exit: Price returned to original target', {
         position: `ANCHOR_${anchorPosition.side}`,
         entryPrice: anchorPosition.entryPrice.toFixed(4),
@@ -749,7 +751,7 @@ export class HedgeStrategy {
 
     // 🎯 PRIORITY 1: Check if price has returned to original exit target
     const originalTarget = this.getOriginalExitTarget(peakPosition);
-    if (originalTarget && this.isPriceAtTarget(currentPrice, originalTarget)) {
+    if (originalTarget && this.isPriceAtTarget(currentPrice, originalTarget, peakPosition)) {
       logger.info('🎯 Target Return Exit: Price returned to original target', {
         position: `PEAK_${peakPosition.side}`,
         entryPrice: peakPosition.entryPrice.toFixed(4),
@@ -962,7 +964,7 @@ export class HedgeStrategy {
 
   /**
    * Check if we should open a Peak reversal position
-   * 🛡️ SAFETY RULE: Only opens when existing position is profitable
+   * 🎯 NEW LOGIC: Opens whenever peak is detected, but not if existing position in same direction
    * 🎯 BIDIRECTIONAL: Detects both peaks (SHORT) and troughs (LONG)
    */
   private shouldOpenPeakReversal(
@@ -970,53 +972,53 @@ export class HedgeStrategy {
     indicators4h: TechnicalIndicators, 
     indicators1h: TechnicalIndicators
   ): boolean {
-    // Get anchor position to determine peak direction
-    const anchorPosition = this.currentPositions.find(pos => pos.type === 'ANCHOR' && pos.status === 'OPEN');
-    if (!anchorPosition) return false;
-
-    // 🛡️ SAFETY RULE: Only open Peak if existing position is profitable
-    const currentProfit = this.calculateProfitPercentage(anchorPosition, currentPrice);
-    if (currentProfit <= 0) {
-      logger.info('🚫 Peak Strategy Blocked: Existing position not profitable', {
-        position: anchorPosition.side,
-        entryPrice: anchorPosition.entryPrice.toFixed(4),
-        currentPrice: currentPrice.toFixed(4),
-        currentProfit: `${currentProfit.toFixed(2)}%`,
-        reason: 'Peak positions only open when existing position is in profit'
-      });
-      return false;
-    }
-
     // Check if we already have a peak position
     const hasPeakPosition = this.currentPositions.some(pos => pos.type === 'OPPORTUNITY' && pos.status === 'OPEN');
     if (hasPeakPosition) return false;
 
-    // 🎯 BIDIRECTIONAL PEAK DETECTION
-    if (anchorPosition.side === 'LONG') {
-      // LONG Anchor → Look for SHORT Peak opportunity (market peaked)
-      if (this.detectMarketPeak(currentPrice, indicators1h)) {
-        logger.info('🎯 SHORT Peak Reversal Signal', {
-          anchorPosition: 'LONG',
-          anchorProfit: `${currentProfit.toFixed(2)}%`,
-          peakPrice: currentPrice.toFixed(4),
-          reason: 'Market peaked after LONG profit - opening SHORT reversal'
-        });
-        return true;
-      }
-    } else if (anchorPosition.side === 'SHORT') {
-      // SHORT Anchor → Look for LONG Peak opportunity (market troughed)
-      if (this.detectMarketTrough(currentPrice, indicators1h)) {
-        logger.info('🎯 LONG Peak Reversal Signal', {
-          anchorPosition: 'SHORT',
-          anchorProfit: `${currentProfit.toFixed(2)}%`,
-          troughPrice: currentPrice.toFixed(4),
-          reason: 'Market troughed after SHORT profit - opening LONG reversal'
-        });
-        return true;
-      }
+    // 🎯 BIDIRECTIONAL PEAK DETECTION - Independent of existing positions
+    let peakDirection: 'LONG' | 'SHORT' | null = null;
+    
+    // Detect SHORT peak (market peaked and declining)
+    if (this.detectMarketPeak(currentPrice, indicators1h)) {
+      peakDirection = 'SHORT';
     }
-
-    return false;
+    
+    // Detect LONG peak (market bottomed and rising)
+    if (this.detectMarketTrough(currentPrice, indicators1h)) {
+      peakDirection = 'LONG';
+    }
+    
+    if (!peakDirection) return false;
+    
+    // 🛡️ SAFETY RULE: Don't open if we already have a position in the same direction
+    const existingSameDirection = this.currentPositions.some(pos => 
+      pos.side === peakDirection && pos.status === 'OPEN'
+    );
+    
+    if (existingSameDirection) {
+      logger.info('🚫 Peak Strategy Blocked: Existing position in same direction', {
+        peakDirection,
+        existingPositions: this.currentPositions.filter(p => p.status === 'OPEN').map(p => `${p.type}_${p.side}`),
+        reason: 'Peak positions only open when no existing position in same direction'
+      });
+      return false;
+    }
+    
+    // Log the peak detection
+    if (peakDirection === 'SHORT') {
+      logger.info('🎯 SHORT Peak Reversal Signal', {
+        peakPrice: currentPrice.toFixed(4),
+        reason: 'Market peaked and declining - opening SHORT peak position'
+      });
+    } else {
+      logger.info('🎯 LONG Peak Reversal Signal', {
+        troughPrice: currentPrice.toFixed(4),
+        reason: 'Market bottomed and rising - opening LONG peak position'
+      });
+    }
+    
+    return true;
   }
 
   /**
@@ -1395,10 +1397,40 @@ export class HedgeStrategy {
 
   /**
    * Check if current price is at or near the original exit target
+   * FIXED: Exit immediately when target is reached (Option 1)
    */
-  private isPriceAtTarget(currentPrice: number, targetPrice: number): boolean {
+  private isPriceAtTarget(currentPrice: number, targetPrice: number, position: Position): boolean {
     const priceTolerance = 0.005; // 0.5% tolerance
-    return Math.abs(currentPrice - targetPrice) / targetPrice <= priceTolerance;
+    const isNearTarget = Math.abs(currentPrice - targetPrice) / targetPrice <= priceTolerance;
+    
+    if (!isNearTarget) {
+      return false;
+    }
+    
+    // Exit immediately when target is reached
+    if (position.side === 'LONG' && currentPrice >= targetPrice) {
+      logger.info('🎯 Target reached - exiting immediately', {
+        position: `ANCHOR_${position.side}`,
+        entryPrice: position.entryPrice.toFixed(4),
+        targetPrice: targetPrice.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        reason: 'Price reached target - exiting immediately for guaranteed profit'
+      });
+      return true;
+    }
+    
+    if (position.side === 'SHORT' && currentPrice <= targetPrice) {
+      logger.info('🎯 Target reached - exiting immediately', {
+        position: `ANCHOR_${position.side}`,
+        entryPrice: position.entryPrice.toFixed(4),
+        targetPrice: targetPrice.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        reason: 'Price reached target - exiting immediately for guaranteed profit'
+      });
+      return true;
+    }
+    
+    return false;
   }
 
   /**
