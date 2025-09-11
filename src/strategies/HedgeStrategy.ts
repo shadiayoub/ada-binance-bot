@@ -23,6 +23,7 @@ export class HedgeStrategy {
   private leverageSettings: LeverageSettings;
   private currentPositions: Position[] = [];
   private useDynamicLevels: boolean = true;
+  private priceHistory: Map<string, Array<{price: number, timestamp: number}>> = new Map();
 
   constructor(
     binanceService: BinanceService,
@@ -570,11 +571,14 @@ export class HedgeStrategy {
         const isAboveResistance = currentPrice >= nearestResistance.price;
         
         if ((isNearResistance || isAboveResistance) && (nearestResistance.importance === 'HIGH' || nearestResistance.importance === 'CRITICAL')) {
-          // Additional confirmation: RSI overbought or volume decreasing
+          // Primary confirmation: RSI overbought or volume decreasing
           const rsiOverbought = indicators1h.rsi > 70;
           const volumeDecreasing = indicators1h.volumeRatio < 0.1; // Match entry volume threshold
           
-          if (rsiOverbought || volumeDecreasing) {
+          // Fallback: Price peak detection (price has peaked and started declining)
+          const pricePeakDetected = this.detectPricePeak(anchorPosition, currentPrice);
+          
+          if (rsiOverbought || volumeDecreasing || pricePeakDetected) {
             logger.info('🎯 LONG Anchor Profit-Taking Signal', {
               position: 'ANCHOR_LONG',
               entryPrice: anchorPosition.entryPrice.toFixed(4),
@@ -586,7 +590,9 @@ export class HedgeStrategy {
               isNearResistance,
               isAboveResistance,
               rsiOverbought,
-              volumeDecreasing
+              volumeDecreasing,
+              pricePeakDetected,
+              exitReason: pricePeakDetected ? 'Price peak detected' : (rsiOverbought ? 'RSI overbought' : 'Volume decreasing')
             });
             return true;
           }
@@ -603,11 +609,14 @@ export class HedgeStrategy {
         const isBelowSupport = currentPrice <= nearestSupport.price;
         
         if ((isNearSupport || isBelowSupport) && (nearestSupport.importance === 'HIGH' || nearestSupport.importance === 'CRITICAL')) {
-          // Additional confirmation: RSI oversold or volume decreasing
+          // Primary confirmation: RSI oversold or volume decreasing
           const rsiOversold = indicators1h.rsi < 30;
           const volumeDecreasing = indicators1h.volumeRatio < 0.1; // Match entry volume threshold
           
-          if (rsiOversold || volumeDecreasing) {
+          // Fallback: Price trough detection (price has bottomed and started rising)
+          const priceTroughDetected = this.detectPriceTrough(anchorPosition, currentPrice);
+          
+          if (rsiOversold || volumeDecreasing || priceTroughDetected) {
             logger.info('🎯 SHORT Anchor Profit-Taking Signal', {
               position: 'ANCHOR_SHORT',
               entryPrice: anchorPosition.entryPrice.toFixed(4),
@@ -619,7 +628,9 @@ export class HedgeStrategy {
               isNearSupport,
               isBelowSupport,
               rsiOversold,
-              volumeDecreasing
+              volumeDecreasing,
+              priceTroughDetected,
+              exitReason: priceTroughDetected ? 'Price trough detected' : (rsiOversold ? 'RSI oversold' : 'Volume decreasing')
             });
             return true;
           }
@@ -965,5 +976,121 @@ export class HedgeStrategy {
    */
   logComprehensiveLevels(currentPrice: number): void {
     this.comprehensiveLevels.logLevelsInfo(currentPrice);
+  }
+
+  /**
+   * Detect if price has peaked and started declining (for LONG positions)
+   * This is a fallback mechanism when RSI/volume conditions aren't met
+   */
+  private detectPricePeak(position: Position, currentPrice: number): boolean {
+    // Store price history for peak detection
+    if (!this.priceHistory) {
+      this.priceHistory = new Map();
+    }
+    
+    const positionKey = `${position.id}_${position.side}`;
+    if (!this.priceHistory.has(positionKey)) {
+      this.priceHistory.set(positionKey, []);
+    }
+    
+    const history = this.priceHistory.get(positionKey)!;
+    history.push({ price: currentPrice, timestamp: Date.now() });
+    
+    // Keep only last 10 price points (about 5 minutes of data)
+    if (history.length > 10) {
+      history.shift();
+    }
+    
+    // Need at least 3 data points to detect a peak
+    if (history.length < 3) {
+      return false;
+    }
+    
+    // Check if we have a peak pattern: price went up, then started declining
+    const recent = history.slice(-3);
+    const [first, second, third] = recent;
+    
+    // Ensure we have all three data points
+    if (!first || !second || !third) {
+      return false;
+    }
+    
+    // Peak detection: second price is highest, third is lower
+    const isPeak = second.price > first.price && third.price < second.price;
+    
+    // Additional condition: current price should be at least 0.3% below the peak
+    const peakDecline = (second.price - currentPrice) / second.price >= 0.003; // 0.3% decline
+    
+    if (isPeak && peakDecline) {
+      logger.info('🔍 Price Peak Detected', {
+        position: position.side,
+        entryPrice: position.entryPrice.toFixed(4),
+        peakPrice: second.price.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        decline: `${((second.price - currentPrice) / second.price * 100).toFixed(2)}%`,
+        reason: 'Price peaked and started declining'
+      });
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Detect if price has bottomed and started rising (for SHORT positions)
+   * This is a fallback mechanism when RSI/volume conditions aren't met
+   */
+  private detectPriceTrough(position: Position, currentPrice: number): boolean {
+    // Store price history for trough detection
+    if (!this.priceHistory) {
+      this.priceHistory = new Map();
+    }
+    
+    const positionKey = `${position.id}_${position.side}`;
+    if (!this.priceHistory.has(positionKey)) {
+      this.priceHistory.set(positionKey, []);
+    }
+    
+    const history = this.priceHistory.get(positionKey)!;
+    history.push({ price: currentPrice, timestamp: Date.now() });
+    
+    // Keep only last 10 price points (about 5 minutes of data)
+    if (history.length > 10) {
+      history.shift();
+    }
+    
+    // Need at least 3 data points to detect a trough
+    if (history.length < 3) {
+      return false;
+    }
+    
+    // Check if we have a trough pattern: price went down, then started rising
+    const recent = history.slice(-3);
+    const [first, second, third] = recent;
+    
+    // Ensure we have all three data points
+    if (!first || !second || !third) {
+      return false;
+    }
+    
+    // Trough detection: second price is lowest, third is higher
+    const isTrough = second.price < first.price && third.price > second.price;
+    
+    // Additional condition: current price should be at least 0.3% above the trough
+    const troughRise = (currentPrice - second.price) / second.price >= 0.003; // 0.3% rise
+    
+    if (isTrough && troughRise) {
+      logger.info('🔍 Price Trough Detected', {
+        position: position.side,
+        entryPrice: position.entryPrice.toFixed(4),
+        troughPrice: second.price.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        rise: `${((currentPrice - second.price) / second.price * 100).toFixed(2)}%`,
+        reason: 'Price bottomed and started rising'
+      });
+      return true;
+    }
+    
+    return false;
   }
 }

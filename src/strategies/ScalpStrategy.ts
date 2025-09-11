@@ -2,6 +2,7 @@ import { logger } from '../utils/logger';
 import { BinanceService } from '../services/BinanceService';
 import { TechnicalAnalysis } from '../services/TechnicalAnalysis';
 import { DynamicLevels } from '../services/DynamicLevels';
+import { ComprehensiveLevels } from '../services/ComprehensiveLevels';
 import { PositionManager } from '../services/PositionManager';
 import { 
   MarketData, 
@@ -15,7 +16,9 @@ export class ScalpStrategy {
   private binanceService: BinanceService;
   private technicalAnalysis: TechnicalAnalysis;
   private dynamicLevels: DynamicLevels;
+  private comprehensiveLevels: ComprehensiveLevels;
   private positionManager: PositionManager;
+  private priceHistory: Map<string, Array<{price: number, timestamp: number}>> = new Map();
   
   // Scalp trade tracking
   private activeScalpTrade: {
@@ -44,6 +47,7 @@ export class ScalpStrategy {
     this.binanceService = binanceService;
     this.technicalAnalysis = technicalAnalysis;
     this.dynamicLevels = dynamicLevels;
+    this.comprehensiveLevels = new ComprehensiveLevels();
     this.positionManager = positionManager;
   }
 
@@ -155,7 +159,7 @@ export class ScalpStrategy {
     const scalpPosition = this.activeScalpTrade.scalpPosition!;
     
     // Check if scalp should be closed (profit target reached)
-    if (this.shouldCloseScalp(scalpPosition, currentPrice)) {
+    if (this.shouldCloseScalp(scalpPosition, currentPrice, indicators15m)) {
       await this.closeScalpTrade();
       return;
     }
@@ -167,11 +171,93 @@ export class ScalpStrategy {
   /**
    * Check if scalp should be closed
    */
-  private shouldCloseScalp(scalpPosition: Position, currentPrice: number): boolean {
-    const profitTarget = 0.0027; // 0.27% profit target
+  private shouldCloseScalp(scalpPosition: Position, currentPrice: number, indicators15m: TechnicalIndicators): boolean {
+    const profitThreshold = 0.0027; // Minimum 0.27% profit before considering exit
     const scalpProfit = this.calculateProfitPercentage(scalpPosition, currentPrice);
     
-    return scalpProfit >= profitTarget;
+    // Only consider profit-taking if we have meaningful profit
+    if (scalpProfit < profitThreshold) {
+      return false;
+    }
+
+    // Get comprehensive trading signals for scalp levels
+    const signals = this.comprehensiveLevels.getTradingSignals(currentPrice);
+    
+    if (scalpPosition.side === 'LONG') {
+      // For LONG scalp: Take profit at resistance levels
+      const nearestResistance = signals.nearestResistance;
+      
+      if (nearestResistance) {
+        // Check if we're near a resistance level (within 0.3% for scalp precision)
+        const priceTolerance = 0.003; // 0.3% tolerance for scalp
+        const isNearResistance = Math.abs(currentPrice - nearestResistance.price) / nearestResistance.price <= priceTolerance;
+        const isAboveResistance = currentPrice >= nearestResistance.price;
+        
+        if (isNearResistance || isAboveResistance) {
+          // Primary confirmation: RSI overbought or volume decreasing
+          const rsiOverbought = indicators15m.rsi > 70;
+          const volumeDecreasing = indicators15m.volumeRatio < 0.1; // Match entry volume threshold
+          
+          // Fallback: Price peak detection (price has peaked and started declining)
+          const pricePeakDetected = this.detectScalpPricePeak(scalpPosition, currentPrice);
+          
+          if (rsiOverbought || volumeDecreasing || pricePeakDetected) {
+            logger.info('🎯 LONG Scalp Profit-Taking Signal', {
+              position: 'SCALP_LONG',
+              entryPrice: scalpPosition.entryPrice.toFixed(4),
+              currentPrice: currentPrice.toFixed(4),
+              profit: `${scalpProfit.toFixed(2)}%`,
+              resistanceLevel: nearestResistance.price.toFixed(4),
+              isNearResistance,
+              isAboveResistance,
+              rsiOverbought,
+              volumeDecreasing,
+              pricePeakDetected,
+              exitReason: pricePeakDetected ? 'Price peak detected' : (rsiOverbought ? 'RSI overbought' : 'Volume decreasing')
+            });
+            return true;
+          }
+        }
+      }
+    } else if (scalpPosition.side === 'SHORT') {
+      // For SHORT scalp: Take profit at support levels
+      const nearestSupport = signals.nearestSupport;
+      
+      if (nearestSupport) {
+        // Check if we're near a support level (within 0.3% for scalp precision)
+        const priceTolerance = 0.003; // 0.3% tolerance for scalp
+        const isNearSupport = Math.abs(currentPrice - nearestSupport.price) / nearestSupport.price <= priceTolerance;
+        const isBelowSupport = currentPrice <= nearestSupport.price;
+        
+        if (isNearSupport || isBelowSupport) {
+          // Primary confirmation: RSI oversold or volume decreasing
+          const rsiOversold = indicators15m.rsi < 30;
+          const volumeDecreasing = indicators15m.volumeRatio < 0.1; // Match entry volume threshold
+          
+          // Fallback: Price trough detection (price has bottomed and started rising)
+          const priceTroughDetected = this.detectScalpPriceTrough(scalpPosition, currentPrice);
+          
+          if (rsiOversold || volumeDecreasing || priceTroughDetected) {
+            logger.info('🎯 SHORT Scalp Profit-Taking Signal', {
+              position: 'SCALP_SHORT',
+              entryPrice: scalpPosition.entryPrice.toFixed(4),
+              currentPrice: currentPrice.toFixed(4),
+              profit: `${scalpProfit.toFixed(2)}%`,
+              supportLevel: nearestSupport.price.toFixed(4),
+              isNearSupport,
+              isBelowSupport,
+              rsiOversold,
+              volumeDecreasing,
+              priceTroughDetected,
+              exitReason: priceTroughDetected ? 'Price trough detected' : (rsiOversold ? 'RSI oversold' : 'Volume decreasing')
+            });
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -467,5 +553,121 @@ export class ScalpStrategy {
         totalProfit: level.totalProfit
       }))
     };
+  }
+
+  /**
+   * Detect if price has peaked and started declining (for LONG scalp positions)
+   * This is a fallback mechanism when RSI/volume conditions aren't met
+   */
+  private detectScalpPricePeak(position: Position, currentPrice: number): boolean {
+    // Store price history for peak detection
+    if (!this.priceHistory) {
+      this.priceHistory = new Map();
+    }
+    
+    const positionKey = `scalp_${position.id}_${position.side}`;
+    if (!this.priceHistory.has(positionKey)) {
+      this.priceHistory.set(positionKey, []);
+    }
+    
+    const history = this.priceHistory.get(positionKey)!;
+    history.push({ price: currentPrice, timestamp: Date.now() });
+    
+    // Keep only last 8 price points (about 2 minutes of scalp data)
+    if (history.length > 8) {
+      history.shift();
+    }
+    
+    // Need at least 3 data points to detect a peak
+    if (history.length < 3) {
+      return false;
+    }
+    
+    // Check if we have a peak pattern: price went up, then started declining
+    const recent = history.slice(-3);
+    const [first, second, third] = recent;
+    
+    // Ensure we have all three data points
+    if (!first || !second || !third) {
+      return false;
+    }
+    
+    // Peak detection: second price is highest, third is lower
+    const isPeak = second.price > first.price && third.price < second.price;
+    
+    // Additional condition: current price should be at least 0.2% below the peak (more sensitive for scalp)
+    const peakDecline = (second.price - currentPrice) / second.price >= 0.002; // 0.2% decline
+    
+    if (isPeak && peakDecline) {
+      logger.info('🔍 Scalp Price Peak Detected', {
+        position: `SCALP_${position.side}`,
+        entryPrice: position.entryPrice.toFixed(4),
+        peakPrice: second.price.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        decline: `${((second.price - currentPrice) / second.price * 100).toFixed(2)}%`,
+        reason: 'Scalp price peaked and started declining'
+      });
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Detect if price has bottomed and started rising (for SHORT scalp positions)
+   * This is a fallback mechanism when RSI/volume conditions aren't met
+   */
+  private detectScalpPriceTrough(position: Position, currentPrice: number): boolean {
+    // Store price history for trough detection
+    if (!this.priceHistory) {
+      this.priceHistory = new Map();
+    }
+    
+    const positionKey = `scalp_${position.id}_${position.side}`;
+    if (!this.priceHistory.has(positionKey)) {
+      this.priceHistory.set(positionKey, []);
+    }
+    
+    const history = this.priceHistory.get(positionKey)!;
+    history.push({ price: currentPrice, timestamp: Date.now() });
+    
+    // Keep only last 8 price points (about 2 minutes of scalp data)
+    if (history.length > 8) {
+      history.shift();
+    }
+    
+    // Need at least 3 data points to detect a trough
+    if (history.length < 3) {
+      return false;
+    }
+    
+    // Check if we have a trough pattern: price went down, then started rising
+    const recent = history.slice(-3);
+    const [first, second, third] = recent;
+    
+    // Ensure we have all three data points
+    if (!first || !second || !third) {
+      return false;
+    }
+    
+    // Trough detection: second price is lowest, third is higher
+    const isTrough = second.price < first.price && third.price > second.price;
+    
+    // Additional condition: current price should be at least 0.2% above the trough (more sensitive for scalp)
+    const troughRise = (currentPrice - second.price) / second.price >= 0.002; // 0.2% rise
+    
+    if (isTrough && troughRise) {
+      logger.info('🔍 Scalp Price Trough Detected', {
+        position: `SCALP_${position.side}`,
+        entryPrice: position.entryPrice.toFixed(4),
+        troughPrice: second.price.toFixed(4),
+        currentPrice: currentPrice.toFixed(4),
+        rise: `${((currentPrice - second.price) / second.price * 100).toFixed(2)}%`,
+        reason: 'Scalp price bottomed and started rising'
+      });
+      return true;
+    }
+    
+    return false;
   }
 }

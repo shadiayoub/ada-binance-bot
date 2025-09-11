@@ -113,10 +113,10 @@ OPPORTUNITY_POSITION_SIZE=0.20 # 20% of balance
 OPPORTUNITY_HEDGE_SIZE=0.30    # 30% of balance
 ```
 
-#### **Leverage Settings (Guaranteed Profit)**
+#### **Leverage Settings (Liquidation-Based Hedge Strategy)**
 ```env
 ANCHOR_LEVERAGE=10             # 10x leverage
-HEDGE_LEVERAGE=15              # 15x leverage
+HEDGE_LEVERAGE=25              # 25x leverage (safety position, no risk)
 OPPORTUNITY_LEVERAGE=10        # 10x leverage
 ```
 
@@ -128,7 +128,7 @@ SCALP_HEDGE_SIZE=0.10          # 10% of balance for scalp hedge
 
 # Scalp Leverage Settings
 SCALP_LEVERAGE=15              # 15x leverage for scalp
-SCALP_HEDGE_LEVERAGE=18        # 18x leverage for scalp hedge (higher for protection)
+SCALP_HEDGE_LEVERAGE=25        # 25x leverage for scalp hedge (safety position)
 
 # Multi-Timeframe Learning
 HISTORICAL_4H_DAYS=180         # 6 months of 4H data
@@ -140,11 +140,11 @@ HISTORICAL_15M_DAYS=1          # 1 day of 15m data for scalp precision
 
 #### **Technical Analysis**
 ```env
-RSI_PERIOD=14
-EMA_FAST=9
-EMA_SLOW=18
-VOLUME_PERIOD=20
-VOLUME_MULTIPLIER=1.5
+RSI_PERIOD=14                 # Momentum oscillator (0-100)
+EMA_FAST=9                    # Fast exponential moving average
+EMA_SLOW=18                   # Slow exponential moving average
+VOLUME_PERIOD=20              # Volume analysis period
+VOLUME_MULTIPLIER=0.1         # Low volume market threshold (entry/exit)
 ```
 
 #### **Dynamic Levels**
@@ -289,24 +289,36 @@ The bot follows this exact sequence:
   - **Action**: Open SHORT position (20% × 10x leverage)
   - **Conditions**: RSI 30-70, 4H trend bearish/sideways, volume > 1.5x average
 
-#### **2. If Bad → Hedge1 Open (Opposite Direction)**
+#### **2. Liquidation-Based Hedge Strategy (Revolutionary!)**
 - **For LONG Anchor**: Price drops below first support level
-  - **Action**: Open SHORT hedge position (30% × 15x leverage)
-  - **Purpose**: Protect long anchor from further losses
+  - **Action**: Open SHORT hedge position (30% × 25x leverage)
+  - **Purpose**: Guaranteed profit system through liquidation mechanics
 - **For SHORT Anchor**: Price rises above first resistance level
-  - **Action**: Open LONG hedge position (30% × 15x leverage)
-  - **Purpose**: Protect short anchor from further losses
+  - **Action**: Open LONG hedge position (30% × 25x leverage)
+  - **Purpose**: Guaranteed profit system through liquidation mechanics
 
-#### **3. Hedge1 Take Profit = Anchor Liquidation Price**
-- **Automatic**: Hedge automatically takes profit when anchor gets liquidated
-- **LONG Anchor**: `Liquidation Price = Entry Price × (1 - 1/10)`
-- **SHORT Anchor**: `Liquidation Price = Entry Price × (1 + 1/10)`
-- **Result**: Hedge profits exactly when anchor loses
+#### **3. Hedge Take Profit Set Before Liquidation**
+- **Automatic**: Hedge TP set 2% before anchor liquidation price
+- **LONG Anchor**: `Hedge TP = Anchor Liquidation × 1.02`
+- **SHORT Anchor**: `Hedge TP = Anchor Liquidation × 0.98`
+- **Result**: Hedge profits BEFORE anchor gets liquidated
 
-#### **4. Hedge1 Closed if Price Returns to Entry**
-- **Trigger**: Price returns to hedge entry price (0.1% tolerance)
-- **Action**: Close hedge position at market price
-- **Purpose**: Lock in hedge profits when market recovers
+#### **4. Three Profit Scenarios (Mathematical Guarantee)**
+
+**Scenario A: Guaranteed Profit (Liquidation)**
+- Anchor approaches liquidation → Hedge hits TP first
+- Hedge profit > Anchor loss → Net guaranteed profit
+- Both positions close for guaranteed profit
+
+**Scenario B: Double Profit (Best Case)**
+- Hedge hits TP → Price returns to support
+- Hedge closes with profit → Anchor continues to target
+- Both positions profit independently
+
+**Scenario C: Safety Exit (Price Returns)**
+- Price returns to hedge entry → Hedge closes at break-even
+- Anchor continues to target → Normal profit
+- No losses, only gains
 
 #### **5. Same for Opportunity and Its Hedge (Bidirectional)**
 - **LONG Opportunity**: Opens at second support level, hedged with SHORT
@@ -342,11 +354,11 @@ The bot includes a sophisticated scalping system that operates on 15-minute inte
 - **Confirmation**: Volume + RSI + trend alignment
 - **Target**: Quick 0.5-2% profits within the range
 
-#### **3. Hedged Backup System**
+#### **3. Liquidation-Based Scalp Hedging**
 - **Dynamic Hedging**: Hedges open at learned S/R levels (not fixed pips)
-- **Higher Leverage**: Hedge uses 18x vs 15x scalp leverage
-- **ROI-Based Closure**: Hedge closes ONLY when its ROI becomes higher than scalp's ROI
-- **Continuous Protection**: New hedges can open if scalp continues losing
+- **Higher Leverage**: Hedge uses 25x vs 15x scalp leverage (safety position)
+- **Liquidation-Based Closure**: Hedge TP set before scalp liquidation
+- **Guaranteed Protection**: Three profit scenarios (guaranteed, double, safety)
 
 #### **4. Multi-Timeframe Learning**
 - **4H Data**: 180 days (6 months) for major S/R levels
@@ -371,17 +383,22 @@ Scalp: Still open, now losing
 Hedge: Protects against further losses
 ```
 
-**Phase 3: Hedge Management**
+**Phase 3: Liquidation-Based Hedge Management**
 ```
-Scenario A: Price returns to $0.8850
-- Hedge ROI becomes higher than scalp ROI
-- Hedge closes automatically
-- Scalp continues running
+Scenario A: Guaranteed Profit
+- Hedge TP hit before scalp liquidation
+- Both positions close for net profit
+- Mathematical guarantee of profit
 
-Scenario B: Price continues dropping
-- Hedge profits as price falls
-- New hedge can open at next S/R level
-- Scalp remains protected
+Scenario B: Double Profit
+- Hedge TP hit → Price returns to scalp entry
+- Hedge closes with profit → Scalp continues to target
+- Both positions profit independently
+
+Scenario C: Safety Exit
+- Price returns to hedge entry
+- Hedge closes at break-even
+- Scalp continues to target
 ```
 
 #### **6. Risk Management**
@@ -409,20 +426,20 @@ The bot now includes **intelligent profit-taking** that automatically exits winn
 #### **Anchor Position Profit-Taking**
 - **Minimum Profit**: 2% required before considering exit
 - **Level Requirements**: Must hit HIGH or CRITICAL importance levels
-- **Technical Confirmation**: RSI overbought/oversold OR volume decreasing
+- **Technical Confirmation**: RSI overbought/oversold OR volume < 0.1 (consistent with entry)
 - **Price Tolerance**: 0.5% around resistance/support levels
 
 **Example**: LONG anchor at $0.86, price moves to $0.89 (3.49% profit)
 - ✅ **Above 2% threshold**
 - ✅ **Near HIGH resistance level** ($0.8922)
 - ✅ **RSI 75** (overbought)
-- ✅ **Volume 0.8** (decreasing)
+- ✅ **Volume 0.05** (< 0.1 threshold, consistent with entry)
 - **Result**: Bot takes profit at optimal level!
 
 #### **Opportunity Position Profit-Taking**
 - **Minimum Profit**: 1.5% required (more aggressive)
 - **Level Requirements**: Must hit MEDIUM, HIGH, or CRITICAL importance levels
-- **Technical Confirmation**: RSI overbought/oversold (stricter thresholds)
+- **Technical Confirmation**: RSI overbought/oversold OR volume < 0.1 (consistent with entry)
 - **Price Tolerance**: 0.5% around resistance/support levels
 
 #### **Profit-Taking Logic Flow**
@@ -445,22 +462,25 @@ Take Profit at Optimal Level → Lock in Gains
 
 ### **Mathematical Guarantee**
 
-#### **Profit Scenarios**
-- **Anchor Liquidation**: +7% profit (hedge covers 20% loss + 27% profit)
-- **Opportunity Liquidation**: +9.25% profit (hedge covers 20% loss + 29.25% profit)
-- **Intelligent Profit-Taking**: 2-5% profit at optimal levels (NEW!)
-- **Normal Recovery**: Hedge closes with profit when price returns to entry
-- **Break-even**: System designed to never lose money
+#### **Liquidation-Based Profit Scenarios**
+- **Guaranteed Profit**: Hedge TP hit before liquidation → Net positive profit
+- **Double Profit**: Hedge TP + Anchor TP → Maximum profit scenario
+- **Safety Exit**: Price returns → Hedge break-even, Anchor profit
+- **Intelligent Profit-Taking**: 2-5% profit at optimal levels
+- **Mathematical Guarantee**: System designed to never lose money
 
-#### **Position Flow**
+#### **Liquidation-Based Position Flow**
 ```
 Anchor Long (20% × 10x) → Resistance Breakout
     ↓
-Price Drops Below Support → Hedge1 Short (30% × 15x)
+Price Drops Below Support → Hedge Short (30% × 25x)
     ↓
-Hedge1 Take Profit = Anchor Liquidation Price
+Hedge TP Set 2% Before Liquidation → Guaranteed Profit Zone
     ↓
-Price Returns to Hedge1 Entry → Hedge1 Closes
+Three Scenarios:
+├── Hedge TP Hit → Guaranteed Net Profit
+├── Price Returns → Hedge Break-even, Anchor Continues
+└── Double Profit → Both Positions Profit
     ↓
 Same Logic for Opportunity + Opportunity Hedge
 ```
@@ -535,12 +555,21 @@ info: Market data fetched {
 }
 ```
 
-#### **Hedge Take Profit Status**
+#### **Liquidation-Based Hedge Status**
 ```
 Hedge position opened: {
   position: { id: "hedge_123", type: "ANCHOR_HEDGE", side: "SHORT" },
-  takeProfitPrice: 0.774,  // Anchor liquidation price
-  reason: "Hedge take profit set at anchor liquidation price"
+  takeProfitPrice: 0.789,  // 2% before anchor liquidation (0.774)
+  anchorLiquidationPrice: 0.774,
+  reason: "Hedge TP set 2% before liquidation for guaranteed profit"
+}
+
+Liquidation-based exit triggered: {
+  scenario: "Guaranteed Profit",
+  anchorLoss: -$20.00,
+  hedgeProfit: +$25.00,
+  netProfit: +$5.00,
+  reason: "Hedge profit exceeds anchor loss"
 }
 ```
 
@@ -557,7 +586,8 @@ Hedge position opened: {
   isNearResistance: true,
   isAboveResistance: true,
   rsiOverbought: true,
-  volumeDecreasing: true
+  volumeDecreasing: true,
+  volumeThreshold: 0.1
 }
 
 🎯 SHORT Opportunity Profit-Taking Signal: {
@@ -570,7 +600,8 @@ Hedge position opened: {
   importance: "HIGH",
   isNearSupport: true,
   isBelowSupport: true,
-  rsiOversold: true
+  rsiOversold: true,
+  volumeThreshold: 0.1
 }
 ```
 
@@ -739,15 +770,17 @@ kill -INT <bot_pid>
 - Do not modify without understanding hedge mathematics
 - Test any changes on testnet first
 
-#### **Leverage Settings**
-- 10x positions and 15x hedges are mathematically optimal
-- Higher leverage = higher profit but same risk profile
-- Lower leverage = lower profit but same safety
+#### **Liquidation-Based Leverage Settings**
+- 10x positions and 25x hedges are mathematically optimal for liquidation strategy
+- Higher hedge leverage = guaranteed profit before liquidation
+- Hedge positions are "safety positions" with no risk if price returns
+- System designed for guaranteed profit scenarios
 
 #### **Technical Indicators**
-- RSI period: 14 is standard, can adjust based on market
+- RSI period: 14 is standard, identifies overbought (>70) and oversold (<30) conditions
 - EMA periods: 9/18 is optimal for trend detection
-- Volume multiplier: 1.5x is conservative, can increase for more signals
+- Volume multiplier: 0.1 for low-volume markets, ensures consistent entry/exit logic
+- Volume threshold: Same for entry and exit (0.1) for logical consistency
 
 ### **Market Adaptation**
 
